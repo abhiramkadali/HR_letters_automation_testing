@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HR Admin — Employee Data Manager</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',sans-serif; background:#f0f2f5; color:#1a1a2e; min-height:100vh; }
+    .topbar { background:#0f172a; padding:0 32px; display:flex; align-items:center; justify-content:space-between; height:56px; border-bottom:2px solid #1e3a5f; }
+    .topbar-logo { font-family:'Arial Black',Arial,sans-serif; font-size:20px; font-weight:900; color:#f8fafc; letter-spacing:-0.5px; }
+    .topbar-logo span { color:#86BC25; }
+    .topbar-badge { background:#1e3a5f; color:#60a5fa; border:1px solid #1d4ed8; border-radius:5px; font-size:10px; font-weight:700; letter-spacing:1px; padding:3px 10px; text-transform:uppercase; }
+    .topbar-right { font-size:11px; color:#475569; }
+    .page { max-width:1100px; margin:0 auto; padding:32px 24px; }
+    .page-title { font-size:20px; font-weight:700; color:#0f172a; margin-bottom:4px; }
+    .page-sub   { font-size:13px; color:#64748b; margin-bottom:28px; }
+    .card { background:white; border-radius:12px; border:1px solid #e2e8f0; padding:24px 28px; margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+    .card-title { font-size:13px; font-weight:700; color:#0f172a; letter-spacing:.5px; text-transform:uppercase; margin-bottom:4px; }
+    .card-sub   { font-size:12px; color:#64748b; margin-bottom:16px; line-height:1.6; }
+    .upload-zone { border:2px dashed #cbd5e1; border-radius:10px; padding:28px 20px; text-align:center; cursor:pointer; transition:all .2s; position:relative; background:#f8fafc; }
+    .upload-zone:hover,.upload-zone.drag-over { border-color:#3b82f6; background:#eff6ff; }
+    .upload-zone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; }
+    .upload-icon { font-size:32px; margin-bottom:8px; }
+    .upload-text { font-size:13px; color:#64748b; line-height:1.6; }
+    .upload-text strong { color:#2563eb; }
+    .status-bar { margin-top:12px; border-radius:8px; padding:10px 14px; font-size:12px; display:none; align-items:flex-start; gap:10px; line-height:1.6; }
+    .status-bar.success { background:#f0fdf4; border:1px solid #86efac; color:#166534; display:flex; }
+    .status-bar.error   { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; display:flex; }
+    .status-bar.warning { background:#fffbeb; border:1px solid #fcd34d; color:#92400e; display:flex; }
+    .status-bar.info    { background:#eff6ff; border:1px solid #93c5fd; color:#1e40af; display:flex; }
+    .mapping-panel { margin-top:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; display:none; }
+    .mapping-title { font-size:11px; font-weight:700; color:#475569; margin-bottom:10px; text-transform:uppercase; letter-spacing:1px; }
+    .mapping-grid  { display:grid; grid-template-columns:180px 1fr; gap:6px 12px; align-items:center; }
+    .mapping-label { font-size:11px; color:#64748b; }
+    .mapping-select { background:white; border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; color:#1e293b; font-size:11px; font-family:'Inter',sans-serif; outline:none; width:100%; }
+    .mapping-select:focus { border-color:#3b82f6; }
+    .apply-btn { margin-top:12px; padding:8px 20px; background:#2563eb; color:white; border:none; border-radius:7px; font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; }
+    .apply-btn:hover { background:#1d4ed8; }
+    .stats-row { display:flex; gap:14px; margin-bottom:20px; flex-wrap:wrap; }
+    .stat-pill { background:white; border:1px solid #e2e8f0; border-radius:10px; padding:12px 20px; flex:1; min-width:140px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+    .stat-pill-num   { font-size:24px; font-weight:700; color:#2563eb; }
+    .stat-pill-label { font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
+    .table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #e2e8f0; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    thead th { background:#0f172a; color:#e2e8f0; padding:10px 14px; text-align:left; font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; }
+    tbody tr:nth-child(even) { background:#f8fafc; }
+    tbody tr:hover { background:#eff6ff; }
+    tbody td { padding:9px 14px; color:#374151; border-bottom:1px solid #f1f5f9; white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis; }
+    .badge { display:inline-block; font-size:9px; font-weight:700; border-radius:4px; padding:2px 7px; }
+    .badge-ok   { background:#dcfce7; color:#166534; }
+    .badge-warn { background:#fef9c3; color:#854d0e; }
+    .action-bar { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; }
+    .action-bar-left { font-size:13px; color:#475569; }
+    .btn { padding:9px 18px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:none; font-family:'Inter',sans-serif; transition:all .15s; }
+    .btn-secondary { background:#f1f5f9; color:#374151; border:1px solid #e2e8f0; }
+    .btn-secondary:hover { background:#e2e8f0; }
+    .btn-green  { background:#16a34a; color:white; }
+    .btn-green:hover  { background:#15803d; }
+    .btn:disabled { opacity:.45; cursor:not-allowed; }
+    .summary-footer { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px 20px; font-size:12px; color:#475569; line-height:1.8; }
+    .summary-footer strong { color:#0f172a; }
+    .steps { display:flex; flex-direction:column; gap:10px; }
+    .step  { display:flex; gap:14px; align-items:flex-start; }
+    .step-num { width:26px; height:26px; border-radius:50%; background:#1e3a5f; color:#60a5fa; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+    .step-text { font-size:12px; color:#475569; line-height:1.6; }
+    .step-text strong { color:#0f172a; }
+    /* SharePoint config */
+    .sp-config { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px 20px; margin-bottom:16px; }
+    .sp-config label { font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:1px; display:block; margin-bottom:6px; }
+    .sp-input-row { display:flex; gap:10px; align-items:center; }
+    .sp-input { flex:1; background:white; border:1px solid #cbd5e1; border-radius:8px; padding:9px 13px; font-size:12px; font-family:'Inter',sans-serif; color:#1e293b; outline:none; }
+    .sp-input:focus { border-color:#3b82f6; }
+    .sp-save-btn { padding:9px 16px; background:#2563eb; color:white; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; white-space:nowrap; }
+    .sp-save-btn:hover { background:#1d4ed8; }
+    .sp-status { font-size:11px; margin-top:8px; }
+    .sp-status.set   { color:#16a34a; }
+    .sp-status.unset { color:#f59e0b; }
+    /* Publish panel */
+    .publish-panel { background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:20px 24px; display:none; }
+    .publish-panel h3 { font-size:13px; font-weight:700; color:#166534; margin-bottom:12px; }
+    .publish-steps { display:flex; flex-direction:column; gap:8px; }
+    .publish-step { display:flex; gap:12px; align-items:flex-start; font-size:12px; color:#166534; line-height:1.5; }
+    .publish-step-num { width:22px; height:22px; border-radius:50%; background:#16a34a; color:white; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+    .filename-chip { background:#dcfce7; border:1px solid #86efac; border-radius:5px; padding:2px 8px; font-family:monospace; font-size:11px; color:#166534; }
+    #data-section { display:none; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">Deloitte<span>.</span></div>
+  <div class="topbar-badge">Admin — HRIS Data Manager</div>
+  <div class="topbar-right">HR Employee Services</div>
+</div>
+
+<div class="page">
+  <div class="page-title">HRIS Employee Data Manager</div>
+  <div class="page-sub">Upload and validate the HRIS export, then publish it to SharePoint so the HR team's user app loads it automatically.</div>
+
+  <!-- How it works -->
+  <div class="card">
+    <div class="card-title">📋 How This Works</div>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-text"><strong>Set your SharePoint folder URL</strong> once below. This is the folder where both HTML apps are stored.</div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-text"><strong>Export</strong> the active employee list from your HRIS system as an Excel file (.xlsx).</div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-text"><strong>Upload</strong> it here. The app validates every row — checking for missing fields and unrecognised location codes.</div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-text"><strong>Publish</strong> — the app downloads <span class="filename-chip">hris_data.json</span>. Upload this file to your SharePoint folder. The user app will load it automatically from then on.</div></div>
+    </div>
+  </div>
+
+  <!-- SharePoint config -->
+  <div class="card">
+    <div class="card-title">🔗 SharePoint Folder URL</div>
+    <div class="card-sub">Enter the direct URL of the SharePoint folder where <code>hris_data.json</code> will be saved. This is saved in your browser so you only need to enter it once.</div>
+    <div class="sp-config">
+      <label>SharePoint Folder URL</label>
+      <div class="sp-input-row">
+        <input class="sp-input" id="sp-url-input" type="url"
+               placeholder="https://yourcompany.sharepoint.com/sites/HRLetters/Shared Documents/HR-Letters/"
+               oninput="onSpUrlInput()"/>
+        <button class="sp-save-btn" onclick="saveSpUrl()">Save URL</button>
+      </div>
+      <div class="sp-status unset" id="sp-url-status">⚠ No SharePoint URL saved yet.</div>
+    </div>
+  </div>
+
+  <!-- Upload card -->
+  <div class="card">
+    <div class="card-title">📂 Upload HRIS Export</div>
+    <div class="card-sub">Upload your HRIS active employee export (.xlsx). Required columns: Name, Email, Designation, Department, Location Code, Join Date, Nationality, Passport Number, Basic Salary, Housing Allowance, Transport Allowance, Total Salary, Bank, IBAN.</div>
+    <div class="upload-zone" id="upload-zone"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <input type="file" id="hris-file" accept=".xlsx,.xls" onchange="handleFileChange(event)"/>
+      <div class="upload-icon">📊</div>
+      <div class="upload-text"><strong>Click to upload</strong> or drag &amp; drop your HRIS .xlsx file here</div>
+    </div>
+    <div class="status-bar" id="upload-status"></div>
+    <div class="mapping-panel" id="mapping-panel">
+      <div class="mapping-title">⚙️ Column Mapping Required — Match your column headers to the expected field names</div>
+      <div class="mapping-grid" id="mapping-grid"></div>
+      <button class="apply-btn" onclick="applyMapping()">Apply Mapping &amp; Load Data</button>
+    </div>
+  </div>
+
+  <!-- Stats + table -->
+  <div id="data-section">
+    <div class="stats-row" id="stats-row"></div>
+
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="action-bar" style="padding:16px 20px 0;">
+        <div class="action-bar-left" id="table-label"></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="toggleIssuesOnly()" id="filter-btn">Show issues only</button>
+          <button class="btn btn-green" id="publish-btn" onclick="publishData()" disabled>
+            📤 Publish to SharePoint
+          </button>
+        </div>
+      </div>
+      <div style="padding:12px 20px 16px;">
+        <div class="table-wrap" id="table-wrap"></div>
+      </div>
+    </div>
+
+    <div class="summary-footer" id="summary-footer"></div>
+
+    <!-- Publish instructions (shown after publish) -->
+    <div class="publish-panel" id="publish-panel">
+      <h3>✅ hris_data.json downloaded — complete the publish in 2 steps:</h3>
+      <div class="publish-steps">
+        <div class="publish-step">
+          <div class="publish-step-num">1</div>
+          <div>Open your SharePoint folder: <a id="sp-link" href="#" target="_blank" style="color:#15803d;font-weight:600;">Open SharePoint folder ↗</a></div>
+        </div>
+        <div class="publish-step">
+          <div class="publish-step-num">2</div>
+          <div>Upload (or drag &amp; drop) the downloaded <span class="filename-chip">hris_data.json</span> file into that folder, replacing any existing version. The user app will load it automatically next time it opens.</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:#166534;">
+        Published: <strong id="publish-timestamp">—</strong> &nbsp;·&nbsp;
+        Employees: <strong id="publish-empcount">—</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LOCATIONS = [
+  { id:"DXB", name:"Dubai – Head Office", address:"Level 12, Dubai World Trade Centre, Sheikh Zayed Road, Dubai, UAE", phone:"+971 4 123 4567", email:"hr.dubai@company.com" },
+  { id:"AUH", name:"Abu Dhabi",           address:"Floor 8, ADNEC Centre, Khaleej Al Arabi, Abu Dhabi, UAE",          phone:"+971 2 234 5678", email:"hr.abudhabi@company.com" },
+  { id:"SHJ", name:"Sharjah",             address:"Office 501, Al Qasimia Tower, Al Arouba Street, Sharjah, UAE",     phone:"+971 6 345 6789", email:"hr.sharjah@company.com" },
+  { id:"AJM", name:"Ajman",               address:"Suite 302, Ajman Free Zone, Ajman, UAE",                           phone:"+971 6 456 7890", email:"hr.ajman@company.com" },
+  { id:"RAK", name:"Ras Al Khaimah",      address:"Block B, RAK Economic Zone, Ras Al Khaimah, UAE",                  phone:"+971 7 567 8901", email:"hr.rak@company.com" },
+  { id:"UAQ", name:"Umm Al Quwain",       address:"Office 201, UAQ Free Trade Zone, Umm Al Quwain, UAE",              phone:"+971 6 567 8910", email:"hr.uaq@company.com" },
+  { id:"FUJ", name:"Fujairah",            address:"Unit 305, Fujairah Creative City, Fujairah, UAE",                  phone:"+971 9 678 9012", email:"hr.fujairah@company.com" },
+];
+const EXPECTED_COLUMNS = {
+  id:          "Employee ID",
+  name:        "Name",
+  email:       "Email",
+  designation: "Designation",
+  department:  "Department",
+  location:    "Location Code",
+  joinDate:    "Join Date",
+  nationality: "Nationality",
+  passportNo:  "Passport Number",
+  basic:       "Basic Salary",
+  housing:     "Housing Allowance",
+  transport:   "Transport Allowance",
+  salary:      "Total Salary",
+  bank:        "Bank",
+  iban:        "IBAN",
+};
+
+// ── State ─────────────────────────────────────────────────────────────
+let allEmployees  = [];
+let rawRows       = [];
+let excelHeaders  = [];
+let currentFile   = null;
+let showIssuesOnly = false;
+
+// ── SharePoint URL (persisted in localStorage) ─────────────────────────
+const SP_URL_KEY = "hrAdmin_spFolderUrl";
+
+window.onload = function() {
+  const saved = localStorage.getItem(SP_URL_KEY);
+  if (saved) {
+    document.getElementById("sp-url-input").value = saved;
+    setSpStatus(saved);
+  }
+};
+
+function onSpUrlInput() {
+  // Clear saved indicator while typing
+  document.getElementById("sp-url-status").textContent = "Press 'Save URL' to confirm.";
+  document.getElementById("sp-url-status").className = "sp-status unset";
+}
+
+function saveSpUrl() {
+  const url = document.getElementById("sp-url-input").value.trim();
+  if (!url) { alert("Please enter a SharePoint folder URL."); return; }
+  localStorage.setItem(SP_URL_KEY, url);
+  setSpStatus(url);
+}
+
+function setSpStatus(url) {
+  const el = document.getElementById("sp-url-status");
+  el.textContent = "✅ Saved — " + url;
+  el.className = "sp-status set";
+}
+
+function getSpUrl() {
+  return localStorage.getItem(SP_URL_KEY) || "";
+}
+
+// ── Drag-and-drop ──────────────────────────────────────────────────────
+function handleDragOver(e) { e.preventDefault(); document.getElementById("upload-zone").classList.add("drag-over"); }
+function handleDragLeave(e){ document.getElementById("upload-zone").classList.remove("drag-over"); }
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById("upload-zone").classList.remove("drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+}
+function handleFileChange(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
+
+// ── File processing ────────────────────────────────────────────────────
+function processFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) { showStatus("error","Please upload a .xlsx or .xls file."); return; }
+  currentFile = file;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb   = XLSX.read(ev.target.result, { type:"binary", cellDates:true });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:"" });
+      if (!rows.length) { showStatus("error","File appears empty."); return; }
+      rawRows      = rows;
+      excelHeaders = Object.keys(rows[0]);
+      const mapping  = autoDetect(excelHeaders);
+      const unmapped = Object.keys(EXPECTED_COLUMNS).filter(k => !mapping[k]);
+      if (!mapping.name || !mapping.email) {
+        showStatus("warning", `${unmapped.length} column(s) need mapping — please match them below.`);
+        showMappingPanel(mapping);
+      } else {
+        loadData(rows, mapping);
+      }
+    } catch(err) { showStatus("error","Could not read file. Ensure it is a valid .xlsx."); console.error(err); }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function autoDetect(headers) {
+  const mapping = {};
+  const n = s => s.toLowerCase().replace(/[\s_\-\.]/g,"");
+  Object.entries(EXPECTED_COLUMNS).forEach(([k,v]) => {
+    const exp = n(v);
+    const m = headers.find(h=>n(h)===exp) || headers.find(h=>n(h).includes(exp)||exp.includes(n(h)));
+    if (m) mapping[k] = m;
+  });
+  return mapping;
+}
+
+function showMappingPanel(detected) {
+  const grid = document.getElementById("mapping-grid");
+  grid.innerHTML = Object.entries(EXPECTED_COLUMNS).map(([k,label]) => {
+    const det = detected[k] || "";
+    const opts = ["-- skip --", ...excelHeaders].map(h =>
+      `<option value="${h}" ${h===det?"selected":""}>${h}</option>`).join("");
+    return `<label class="mapping-label">${label}</label>
+            <select class="mapping-select" id="map_${k}">${opts}</select>`;
+  }).join("");
+  document.getElementById("mapping-panel").style.display = "block";
+}
+
+function applyMapping() {
+  const mapping = {};
+  Object.keys(EXPECTED_COLUMNS).forEach(k => {
+    const v = document.getElementById(`map_${k}`)?.value;
+    if (v && v !== "-- skip --") mapping[k] = v;
+  });
+  if (!mapping.name || !mapping.email) { showStatus("error","Name and Email columns must be mapped."); return; }
+  document.getElementById("mapping-panel").style.display = "none";
+  loadData(rawRows, mapping);
+}
+
+// ── Parse and validate ─────────────────────────────────────────────────
+function loadData(rows, mapping) {
+  const validLocIds = LOCATIONS.map(l => l.id);
+  allEmployees = rows.map((row, idx) => {
+    const emp = { _rowNum: idx + 2, _issues: [] };
+    Object.entries(mapping).forEach(([k, col]) => {
+      let v = row[col];
+      if (v instanceof Date) v = v.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+      else v = (v != null) ? String(v).trim() : "";
+      if (["salary","basic","housing","transport"].includes(k) && v && !v.startsWith("AED")) {
+        const num = parseFloat(v.replace(/,/g,""));
+        v = isNaN(num) ? v : "AED " + num.toLocaleString();
+      }
+      emp[k] = v;
+    });
+    if (!emp.id) emp.id = `ROW${idx+1}`;
+    if (emp.email) emp.email = emp.email.toLowerCase().trim();
+    if (!emp.name)        emp._issues.push("Missing name");
+    if (!emp.email)       emp._issues.push("Missing email");
+    if (!emp.designation) emp._issues.push("Missing designation");
+    if (!emp.location)    emp._issues.push("Missing location code");
+    else if (!validLocIds.includes(emp.location)) emp._issues.push(`Unknown location code: ${emp.location}`);
+    if (!emp.salary)      emp._issues.push("Missing total salary");
+    if (!emp.passportNo)  emp._issues.push("Missing passport number");
+    return emp;
+  }).filter(e => e.name || e.email);
+
+  renderStats();
+  renderTable(allEmployees);
+  document.getElementById("data-section").style.display = "block";
+  document.getElementById("publish-panel").style.display = "none";
+
+  const issues = allEmployees.filter(e => e._issues.length > 0);
+  if (issues.length === 0) {
+    showStatus("success", `✅ ${allEmployees.length} employees loaded with no issues. Ready to publish.`);
+  } else {
+    showStatus("warning", `⚠️ ${allEmployees.length} employees loaded · ${issues.length} row(s) have issues. You can still publish — flagged rows will be included.`);
+  }
+  document.getElementById("publish-btn").disabled = false;
+  renderSummary();
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────
+function renderStats() {
+  const issues    = allEmployees.filter(e => e._issues.length > 0).length;
+  const locations = new Set(allEmployees.map(e=>e.location).filter(Boolean)).size;
+  const depts     = new Set(allEmployees.map(e=>e.department).filter(Boolean)).size;
+  document.getElementById("stats-row").innerHTML = [
+    { num: allEmployees.length, label: "Total Employees" },
+    { num: locations,           label: "Office Locations" },
+    { num: depts,               label: "Departments" },
+    { num: issues,              label: "Rows With Issues", warn: issues > 0 },
+  ].map(s => `<div class="stat-pill">
+    <div class="stat-pill-num" style="${s.warn && s.num > 0 ? 'color:#d97706' : ''}">${s.num}</div>
+    <div class="stat-pill-label">${s.label}</div>
+  </div>`).join("");
+}
+
+// ── Table ──────────────────────────────────────────────────────────────
+const TABLE_COLS = [
+  {key:"id",label:"Emp ID"},{key:"name",label:"Name"},{key:"email",label:"Email"},
+  {key:"designation",label:"Designation"},{key:"department",label:"Department"},
+  {key:"location",label:"Location"},{key:"nationality",label:"Nationality"},
+  {key:"passportNo",label:"Passport"},{key:"salary",label:"Total Salary"},{key:"bank",label:"Bank"},
+];
+
+function renderTable(list) {
+  document.getElementById("table-label").textContent =
+    `Showing ${list.length} of ${allEmployees.length} employee${allEmployees.length!==1?"s":""}`;
+  const headers = TABLE_COLS.map(c=>`<th>${c.label}</th>`).join("") + "<th>Status</th>";
+  const body = list.map(emp => {
+    const cells = TABLE_COLS.map(c=>`<td title="${emp[c.key]||""}">${emp[c.key]||"—"}</td>`).join("");
+    const statusCell = emp._issues.length === 0
+      ? `<td><span class="badge badge-ok">OK</span></td>`
+      : `<td><span class="badge badge-warn" title="${emp._issues.join(', ')}">⚠ ${emp._issues.length} issue${emp._issues.length>1?"s":""}</span></td>`;
+    return `<tr ${emp._issues.length > 0 ? 'style="background:#fffbeb;"' : ""}>${cells}${statusCell}</tr>`;
+  }).join("");
+  document.getElementById("table-wrap").innerHTML =
+    `<table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function toggleIssuesOnly() {
+  showIssuesOnly = !showIssuesOnly;
+  document.getElementById("filter-btn").textContent = showIssuesOnly ? "Show all employees" : "Show issues only";
+  renderTable(showIssuesOnly ? allEmployees.filter(e=>e._issues.length>0) : allEmployees);
+}
+
+// ── Summary ────────────────────────────────────────────────────────────
+function renderSummary() {
+  const byLoc = {};
+  allEmployees.forEach(e => { if(e.location) byLoc[e.location] = (byLoc[e.location]||0)+1; });
+  const issues = allEmployees.filter(e=>e._issues.length>0).length;
+  document.getElementById("summary-footer").innerHTML =
+    `<strong>File:</strong> ${currentFile?.name||"—"} &nbsp;·&nbsp;
+     <strong>Employees:</strong> ${allEmployees.length} &nbsp;·&nbsp;
+     <strong>Issues:</strong> ${issues===0?'<span style="color:#16a34a">None</span>':`<span style="color:#d97706">${issues} rows</span>`} &nbsp;·&nbsp;
+     <strong>By Office:</strong> ${Object.entries(byLoc).map(([k,v])=>`${k}: ${v}`).join(" · ")||"—"}`;
+}
+
+// ── Publish ────────────────────────────────────────────────────────────
+// Serialises validated employees to hris_data.json and downloads it.
+// Admin then uploads the JSON file to the SharePoint folder.
+// The user app fetches it by URL on every open.
+function publishData() {
+  if (!allEmployees.length) return;
+
+  const spUrl = getSpUrl();
+
+  const timestamp = new Date().toISOString();
+  const payload = {
+    publishedAt:   timestamp,
+    publishedBy:   "HR Admin",
+    employeeCount: allEmployees.length,
+    sourceFile:    currentFile?.name || "unknown",
+    employees:     allEmployees.map(e => {
+      // Strip internal validation fields before publishing
+      const { _rowNum, _issues, ...clean } = e;
+      return clean;
+    }),
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = "hris_data.json";
+  a.click();
+  URL.revokeObjectURL(url);
+
+  // Show publish instructions
+  const panel = document.getElementById("publish-panel");
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const spLink = document.getElementById("sp-link");
+  if (spUrl) {
+    spLink.href = spUrl;
+    spLink.textContent = "Open SharePoint folder ↗";
+  } else {
+    spLink.textContent = "(Set your SharePoint URL above to get a direct link)";
+    spLink.href = "#";
+  }
+
+  const friendly = new Date(timestamp).toLocaleString("en-GB",
+    { day:"numeric", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit" });
+  document.getElementById("publish-timestamp").textContent = friendly;
+  document.getElementById("publish-empcount").textContent  = allEmployees.length + " employees";
+
+  showStatus("success",
+    `📤 hris_data.json downloaded (${allEmployees.length} employees). Follow the steps below to complete publishing.`);
+}
+
+// ── Status ─────────────────────────────────────────────────────────────
+function showStatus(type, message) {
+  const el = document.getElementById("upload-status");
+  el.className = `status-bar ${type}`;
+  el.innerHTML = `<span>${message}</span>`;
+  el.style.display = "flex";
+}
+
+</script>
+</body>
+</html>
