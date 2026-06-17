@@ -364,7 +364,30 @@
     <button class="generate-btn" id="generate-btn" onclick="generateLetter()" disabled>
       Select employee &amp; letter type
     </button>
-  </div>
+
+    <!-- Letter Log toolbar -->
+    <div style="margin: 0 20px 16px; display:flex; gap:8px;">
+      <button onclick="downloadLog()"
+        style="flex:1;padding:8px 0;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        onmouseover="this.style.borderColor='#3b82f6';this.style.color='#60a5fa'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8'">
+        📥 Download Log
+      </button>
+      <button onclick="emailLog()"
+        style="flex:1;padding:8px 0;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        onmouseover="this.style.borderColor='#3b82f6';this.style.color='#60a5fa'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8'">
+        📧 Email Log
+      </button>
+      <button onclick="clearLog()"
+        style="padding:8px 10px;background:#1e293b;color:#64748b;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        title="Clear all log entries"
+        onmouseover="this.style.borderColor='#ef4444';this.style.color='#f87171'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#64748b'">
+        🗑
+      </button>
+    </div>
+    <div id="log-status" style="margin:-8px 20px 14px;font-size:10px;color:#475569;text-align:center;"></div>
 
   <!-- ═══════════════════════════════════════ PREVIEW PANE ═══════════════════════════════════════ -->
   <div class="preview-pane">
@@ -822,8 +845,17 @@ const SIGNATORIES = [
 ];
 
 // ════════════════════════════════════════════════════════════════════════
-// STATE
+// SECTION 6c: LETTER LOG CONFIGURATION
+// ────────────────────────────────────────────────────────────────────────
+// The app logs every generated letter to localStorage.
+// HR can download the log as Excel or email it to the inbox below.
+//
+// LOG_EMAIL_RECIPIENT → email address the log is sent to
+// LOG_STORAGE_KEY     → localStorage key (change only if conflicts arise)
 // ════════════════════════════════════════════════════════════════════════
+
+const LOG_EMAIL_RECIPIENT = "hr.letterlog@company.com"; // ← update this
+const LOG_STORAGE_KEY     = "hrLetterGeneratorLog";
 
 let EMPLOYEES      = [...SAMPLE_EMPLOYEES]; // Active merged employee list shown in cards
 let selectedEmp    = null;
@@ -1613,6 +1645,22 @@ function generateLetter() {
   document.getElementById("preview-canvas").innerHTML = `<div class="letter-paper">${currentHTML}</div>`;
   document.getElementById("preview-title").textContent = `${selectedLetter.name} · ${selectedEmp.name}`;
   document.getElementById("preview-actions").style.display = "flex";
+
+  // ── Append to persistent letter log ──────────────────────────────────
+  appendToLog({
+    timestamp:   new Date().toISOString(),
+    ritm:        selectedEmp?._snReq?.snRequestNo  || "—",
+    empName:     selectedEmp?.name                 || "—",
+    empId:       selectedEmp?.id                   || "—",
+    designation: selectedEmp?.designation          || "—",
+    department:  selectedEmp?.department           || "—",
+    office:      loc?.name                         || "—",
+    letterType:  selectedLetter?.name              || "—",
+    addressee:   addressee                         || "—",
+    purpose:     purpose                           || "—",
+    signatory:   sigName                           || "—",
+    letterDate:  letterDate                        || "—",
+  });
 }
 
 
@@ -1842,7 +1890,168 @@ function editLetter() {
   win.document.close();
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 12: LETTER LOG
+// ────────────────────────────────────────────────────────────────────────
+// Persists a log of every generated letter in localStorage.
+// Each entry captures: timestamp, RITM, employee, letter type, office,
+// signatory, addressee, purpose, and letter date.
+// HR can download as Excel or email to the configured inbox.
+// ════════════════════════════════════════════════════════════════════════
 
-</script>
-</body>
-</html>
+// ── Read / write helpers ──────────────────────────────────────────────
+function readLog() {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || "[]");
+  } catch { return []; }
+}
+
+function writeLog(entries) {
+  localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(entries));
+}
+
+// ── Append a new entry ────────────────────────────────────────────────
+function appendToLog(entry) {
+  const log = readLog();
+  log.push(entry);
+  writeLog(log);
+  updateLogStatus();
+}
+
+// ── Update the log status line beneath the toolbar ───────────────────
+function updateLogStatus() {
+  const log    = readLog();
+  const el     = document.getElementById("log-status");
+  if (!el) return;
+  if (log.length === 0) {
+    el.textContent = "No letters logged yet.";
+  } else {
+    const last = new Date(log[log.length - 1].timestamp)
+      .toLocaleString("en-GB", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    el.textContent = `${log.length} letter${log.length !== 1 ? "s" : ""} logged · Last: ${last}`;
+  }
+}
+
+// Call on page load to show current count
+window.addEventListener("load", updateLogStatus);
+
+// ── Download log as Excel (.xlsx) using SheetJS ───────────────────────
+function downloadLog() {
+  const log = readLog();
+  if (log.length === 0) {
+    alert("No letters have been logged yet. Generate a letter first.");
+    return;
+  }
+
+  const headers = [
+    "Timestamp", "RITM / Request No.", "Employee Name", "Employee ID",
+    "Designation", "Department", "Office", "Letter Type",
+    "Addressed To", "Purpose", "Letter Date", "Authorised Signatory",
+  ];
+
+  const rows = log.map(e => [
+    // Format timestamp to readable local time
+    new Date(e.timestamp).toLocaleString("en-GB", {
+      day:"2-digit", month:"2-digit", year:"numeric",
+      hour:"2-digit", minute:"2-digit", second:"2-digit"
+    }),
+    e.ritm        || "—",
+    e.empName     || "—",
+    e.empId       || "—",
+    e.designation || "—",
+    e.department  || "—",
+    e.office      || "—",
+    e.letterType  || "—",
+    e.addressee   || "—",
+    e.purpose     || "—",
+    e.letterDate  || "—",
+    e.signatory   || "—",
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+  // Column widths
+  ws["!cols"] = [
+    { wch: 20 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
+    { wch: 26 }, { wch: 20 }, { wch: 22 }, { wch: 26 },
+    { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 26 },
+  ];
+
+  // Style the header row bold (basic XLSX styling via cell format)
+  headers.forEach((_, i) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
+    if (!ws[cellRef]) return;
+    ws[cellRef].s = { font: { bold: true }, fill: { fgColor: { rgb: "0F172A" } }, font: { bold: true, color: { rgb: "FFFFFF" } } };
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, "Letter Log");
+
+  const today    = new Date().toISOString().slice(0, 10);
+  const filename = `HR_Letter_Log_${today}.xlsx`;
+  XLSX.writeFile(wb, filename);
+
+  // Update status after download
+  document.getElementById("log-status").textContent =
+    `Downloaded: ${filename}  (${log.length} entries)`;
+}
+
+// ── Email log to configured inbox ─────────────────────────────────────
+// Opens Outlook / default mail client with a formatted log summary.
+// User attaches the downloaded Excel manually.
+function emailLog() {
+  const log = readLog();
+  if (log.length === 0) {
+    alert("No letters have been logged yet. Generate a letter first.");
+    return;
+  }
+
+  const today   = new Date().toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+  const subject = encodeURIComponent(`HR Letter Log — ${today} (${log.length} entries)`);
+
+  // Build plain-text table for email body (last 20 entries shown; full log in Excel)
+  const recent  = log.slice(-20);
+  const lines   = recent.map((e, i) => {
+    const ts = new Date(e.timestamp).toLocaleString("en-GB", {
+      day:"2-digit", month:"2-digit", year:"numeric",
+      hour:"2-digit", minute:"2-digit"
+    });
+    return `${log.length - recent.length + i + 1}. [${ts}]  ${e.ritm || "—"}  |  ${e.empName || "—"}  |  ${e.letterType || "—"}  |  ${e.office || "—"}`;
+  }).join("\n");
+
+  const body = encodeURIComponent(
+    `Dear HR Team,\n\n` +
+    `Please find below the HR letter generation log for ${today}.\n\n` +
+    `Total letters logged: ${log.length}\n` +
+    (log.length > 20 ? `(Showing last 20 entries — see attached Excel for full log)\n` : "") +
+    `\n${"─".repeat(80)}\n` +
+    `#    Timestamp              RITM          Employee Name            Letter Type\n` +
+    `${"─".repeat(80)}\n` +
+    `${lines}\n` +
+    `${"─".repeat(80)}\n\n` +
+    `Please attach the downloaded Excel log file (HR_Letter_Log_${new Date().toISOString().slice(0,10)}.xlsx) to this email before sending.\n\n` +
+    `To download the log: open hr_user.html → click 📥 Download Log\n\n` +
+    `Regards,\nHR Letter Generator`
+  );
+
+  // Open default mail client (Outlook) with pre-filled fields
+  window.location.href = `mailto:${LOG_EMAIL_RECIPIENT}?subject=${subject}&body=${body}`;
+
+  // Prompt to also download the Excel
+  setTimeout(() => {
+    if (confirm("Email client opened. Would you also like to download the Excel log to attach to the email?")) {
+      downloadLog();
+    }
+  }, 800);
+}
+
+// ── Clear log with confirmation ───────────────────────────────────────
+function clearLog() {
+  const log = readLog();
+  if (log.length === 0) { alert("The log is already empty."); return; }
+  if (confirm(`This will permanently delete all ${log.length} log entries. This cannot be undone.\n\nAre you sure?`)) {
+    writeLog([]);
+    updateLogStatus();
+    alert("Log cleared.");
+  }
+}
