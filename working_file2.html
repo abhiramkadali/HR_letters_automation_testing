@@ -1,0 +1,2041 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HR Letter Generator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Aptos:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <!-- Aptos is Deloitte/Microsoft's default font from Office 2024+.
+       Google Fonts serves it natively; falls back to Calibri then sans-serif. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+
+function readLog() {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || "[]");
+  } catch { return []; }
+}
+
+function writeLog(entries) {
+  localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(entries));
+}
+
+function appendToLog(entry) {
+  const log = readLog();
+  log.push(entry);
+  writeLog(log);
+  updateLogStatus();
+}
+
+function updateLogStatus() {
+  const log    = readLog();
+  const el     = document.getElementById("log-status");
+  if (!el) return;
+  if (log.length === 0) {
+    el.textContent = "No letters logged yet.";
+  } else {
+    const last = new Date(log[log.length - 1].timestamp)
+      .toLocaleString("en-GB", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    el.textContent = `${log.length} letter${log.length !== 1 ? "s" : ""} logged · Last: ${last}`;
+  }
+}
+
+// Call updateLogStatus from window.onload above
+
+function downloadLog() {
+  const log = readLog();
+  if (log.length === 0) {
+    alert("No letters have been logged yet. Generate a letter first.");
+    return;
+  }
+
+  const headers = [
+    "Timestamp", "RITM / Request No.", "Employee Name", "Employee ID",
+    "Designation", "Department", "Office", "Letter Type",
+    "Addressed To", "Purpose", "Letter Date", "Authorised Signatory",
+  ];
+
+  const rows = log.map(e => [
+
+    new Date(e.timestamp).toLocaleString("en-GB", {
+      day:"2-digit", month:"2-digit", year:"numeric",
+      hour:"2-digit", minute:"2-digit", second:"2-digit"
+    }),
+    e.ritm        || "—",
+    e.empName     || "—",
+    e.empId       || "—",
+    e.designation || "—",
+    e.department  || "—",
+    e.office      || "—",
+    e.letterType  || "—",
+    e.addressee   || "—",
+    e.purpose     || "—",
+    e.letterDate  || "—",
+    e.signatory   || "—",
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+  ws["!cols"] = [
+    { wch: 20 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
+    { wch: 26 }, { wch: 20 }, { wch: 22 }, { wch: 26 },
+    { wch: 30 }, { wch: 28 }, { wch: 14 }, { wch: 26 },
+  ];
+
+  headers.forEach((_, i) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
+    if (!ws[cellRef]) return;
+    ws[cellRef].s = { font: { bold: true }, fill: { fgColor: { rgb: "0F172A" } }, font: { bold: true, color: { rgb: "FFFFFF" } } };
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, "Letter Log");
+
+  const today    = new Date().toISOString().slice(0, 10);
+  const filename = `HR_Letter_Log_${today}.xlsx`;
+  XLSX.writeFile(wb, filename);
+
+  document.getElementById("log-status").textContent =
+    `Downloaded: ${filename}  (${log.length} entries)`;
+}
+
+function emailLog() {
+  const log = readLog();
+  if (log.length === 0) {
+    alert("No letters have been logged yet. Generate a letter first.");
+    return;
+  }
+
+  const today   = new Date().toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+  const subject = encodeURIComponent(`HR Letter Log — ${today} (${log.length} entries)`);
+
+  const recent  = log.slice(-20);
+  const lines   = recent.map((e, i) => {
+    const ts = new Date(e.timestamp).toLocaleString("en-GB", {
+      day:"2-digit", month:"2-digit", year:"numeric",
+      hour:"2-digit", minute:"2-digit"
+    });
+    return `${log.length - recent.length + i + 1}. [${ts}]  ${e.ritm || "—"}  |  ${e.empName || "—"}  |  ${e.letterType || "—"}  |  ${e.office || "—"}`;
+  }).join("\n");
+
+  const body = encodeURIComponent(
+    `Dear HR Team,\n\n` +
+    `Please find below the HR letter generation log for ${today}.\n\n` +
+    `Total letters logged: ${log.length}\n` +
+    (log.length > 20 ? `(Showing last 20 entries — see attached Excel for full log)\n` : "") +
+    `\n${"─".repeat(80)}\n` +
+    `#    Timestamp              RITM          Employee Name            Letter Type\n` +
+    `${"─".repeat(80)}\n` +
+    `${lines}\n` +
+    `${"─".repeat(80)}\n\n` +
+    `Please attach the downloaded Excel log file (HR_Letter_Log_${new Date().toISOString().slice(0,10)}.xlsx) to this email before sending.\n\n` +
+    `To download the log: open hr_user.html → click 📥 Download Log\n\n` +
+    `Regards,\nHR Letter Generator`
+  );
+
+  window.location.href = `mailto:${LOG_EMAIL_RECIPIENT}?subject=${subject}&body=${body}`;
+
+  setTimeout(() => {
+    if (confirm("Email client opened. Would you also like to download the Excel log to attach to the email?")) {
+      downloadLog();
+    }
+  }, 800);
+}
+
+function clearLog() {
+  const log = readLog();
+  if (log.length === 0) { alert("The log is already empty."); return; }
+  if (confirm(`This will permanently delete all ${log.length} log entries. This cannot be undone.\n\nAre you sure?`)) {
+    writeLog([]);
+    updateLogStatus();
+    alert("Log cleared.");
+  }
+}
+
+</script>
+  <style>
+    /* ============================================================
+       SECTION A: APP UI STYLES
+    ============================================================ */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Aptos', Calibri, sans-serif; background: #f0f2f5; color: #1a1a2e; height: 100vh; overflow: hidden; }
+    .app { display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    .sidebar { width: 380px; min-width: 380px; background: #0f172a; color: #e2e8f0; display: flex; flex-direction: column; overflow-y: auto; }
+    .sidebar-header { padding: 20px 20px 14px; border-bottom: 1px solid #1e293b; }
+    .sidebar-title { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+    .sidebar-sub   { font-size: 11px; color: #475569; margin-top: 2px; }
+
+    .stats-bar { background: #1e293b; padding: 10px 20px; display: flex; gap: 0; }
+    .stat { text-align: center; flex: 1; }
+    .stat-num   { font-size: 17px; font-weight: 700; color: #3b82f6; }
+    .stat-label { font-size: 9px; color: #64748b; letter-spacing: 0.5px; text-transform: uppercase; }
+
+    .form-section { padding: 14px 20px; border-bottom: 1px solid #1e293b; }
+    .form-label   { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: #64748b; text-transform: uppercase; margin-bottom: 8px; display: block; }
+
+    /* ── Source badges & upload blocks ── */
+    .upload-sources { display: flex; flex-direction: column; gap: 10px; }
+    .upload-source-block { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; }
+    .upload-source-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .source-badge { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; border-radius: 4px; padding: 2px 7px; }
+    .source-badge.hris { background: #0f2a4a; color: #60a5fa; border: 1px solid #1d4ed8; }
+    .source-badge.snow { background: #1a1004; color: #fbbf24; border: 1px solid #92400e; }
+    .source-title { font-size: 11px; font-weight: 600; color: #cbd5e1; }
+    .source-desc { font-size: 10px; color: #475569; margin-bottom: 8px; line-height: 1.4; }
+    .upload-zone-sm { border: 2px dashed #334155; border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
+    .upload-zone-sm:hover, .upload-zone-sm.drag-over { border-color: #3b82f6; background: #1e3a5f; }
+    .upload-zone-sm input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+    .upload-zone-sm .upload-text { font-size: 11px; color: #94a3b8; }
+    .upload-zone-sm .upload-text strong { color: #60a5fa; }
+    .source-status { margin-top: 6px; border-radius: 6px; padding: 6px 10px; font-size: 10px; display: none; align-items: center; gap: 6px; }
+    .source-status.success { background: #052e16; border: 1px solid #166534; color: #86efac; display: flex; }
+    .source-status.error   { background: #2d0a0a; border: 1px solid #991b1b; color: #fca5a5; display: flex; }
+    .source-status.warning { background: #1c1004; border: 1px solid #92400e; color: #fcd34d; display: flex; }
+
+    /* ── Merge banner ── */
+    .merge-banner { margin-top: 10px; border-radius: 8px; padding: 8px 12px; font-size: 11px; display: none; align-items: center; gap: 8px; }
+    .merge-banner.ready   { background: #052e16; border: 1px solid #166534; color: #86efac; display: flex; }
+    .merge-banner.partial { background: #1c1004; border: 1px solid #92400e; color: #fcd34d; display: flex; }
+
+    /* ── Collapsed upload summary ── */
+    .upload-summary { display: none; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    .upload-summary:hover { border-color: #475569; }
+    .upload-summary-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: #94a3b8; }
+    .upload-summary-row + .upload-summary-row { margin-top: 4px; }
+    .upload-summary-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .upload-summary-dot.hris { background: #3b82f6; }
+    .upload-summary-dot.snow { background: #f59e0b; }
+    .upload-summary-label { color: #64748b; min-width: 58px; }
+    .upload-summary-value { color: #e2e8f0; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .upload-summary-change { font-size: 9px; color: #475569; margin-left: auto; text-decoration: underline; text-underline-offset: 2px; }
+
+    /* ── Mapping panel ── */
+    .mapping-panel { margin-top: 10px; background: #1e293b; border-radius: 8px; padding: 10px 12px; display: none; }
+    .mapping-title { font-size: 10px; font-weight: 600; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+    .mapping-row   { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .mapping-label { font-size: 10px; color: #64748b; width: 100px; flex-shrink: 0; }
+    .mapping-select { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 5px; padding: 4px 8px; color: #f1f5f9; font-size: 10px; font-family: 'Aptos', Calibri, sans-serif; outline: none; }
+    .mapping-select:focus { border-color: #3b82f6; }
+    .apply-mapping-btn { width: 100%; margin-top: 8px; padding: 7px; background: #1d4ed8; color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Aptos', Calibri, sans-serif; }
+    .apply-mapping-btn:hover { background: #1e40af; }
+
+    /* ── Search box ── */
+    .search-box { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 13px; color: #f1f5f9; font-size: 13px; font-family: 'Aptos', Calibri, sans-serif; outline: none; transition: border-color 0.2s; }
+    .search-box::placeholder { color: #475569; }
+    .search-box:focus { border-color: #3b82f6; }
+
+    /* ── Employee / request cards ── */
+    .emp-list { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; transition: max-height 0.3s ease; }
+    .emp-list.expanded { max-height: 420px; }
+    .emp-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 12px; cursor: pointer; transition: all 0.15s; }
+    .emp-card:hover    { border-color: #3b82f6; background: #1e3a5f; }
+    .emp-card.selected { border-color: #3b82f6; background: #1e3a5f; }
+    .emp-card-name { font-size: 12px; font-weight: 600; color: #f1f5f9; }
+    .emp-card-sub  { font-size: 10px; color: #64748b; margin-top: 1px; }
+    .emp-badge { display: inline-block; font-size: 9px; background: #0f2a4a; color: #60a5fa; border: 1px solid #1d4ed8; border-radius: 4px; padding: 1px 5px; margin-top: 3px; }
+    .sn-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 12px; cursor: pointer; transition: all 0.15s; }
+    .sn-card:hover    { border-color: #f59e0b; background: #1c1a04; }
+    .sn-card.selected { border-color: #f59e0b; background: #1c1a04; }
+    .sn-card-name  { font-size: 12px; font-weight: 600; color: #f1f5f9; }
+    .sn-card-sub   { font-size: 10px; color: #64748b; margin-top: 1px; }
+    .sn-card-meta  { display: flex; gap: 5px; margin-top: 4px; flex-wrap: wrap; }
+    .sn-tag { display: inline-block; font-size: 9px; border-radius: 4px; padding: 1px 6px; font-weight: 600; }
+    .sn-tag.letter-type { background: #1a1004; color: #fbbf24; border: 1px solid #92400e; }
+    .sn-tag.matched     { background: #052e16; color: #86efac; border: 1px solid #166534; }
+    .sn-tag.unmatched   { background: #2d0a0a; color: #fca5a5; border: 1px solid #991b1b; }
+
+    /* ── Letter type buttons ── */
+    .letter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
+    .letter-btn  { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; cursor: pointer; text-align: left; transition: all 0.15s; color: inherit; font-family: 'Aptos', Calibri, sans-serif; }
+    .letter-btn:hover    { border-color: #3b82f6; background: #1e3a5f; }
+    .letter-btn.selected { border-color: #3b82f6; background: #1e3a5f; }
+    .letter-btn-name { font-size: 10px; font-weight: 600; color: #f1f5f9; line-height: 1.3; }
+    .letter-btn-desc { font-size: 9px; color: #64748b; margin-top: 1px; }
+
+    /* ── Purpose / text inputs ── */
+    .purpose-box { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 13px; color: #f1f5f9; font-size: 13px; font-family: 'Aptos', Calibri, sans-serif; outline: none; resize: none; transition: border-color 0.2s; }
+    .purpose-box::placeholder { color: #475569; }
+    .purpose-box:focus { border-color: #3b82f6; }
+
+    /* ── Addressee buttons ── */
+    .addressee-btn { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 7px 10px; cursor: pointer; text-align: left; transition: all 0.15s; color: inherit; font-family: 'Aptos', Calibri, sans-serif; font-size: 10px; font-weight: 600; color: #f1f5f9; line-height: 1.3; }
+    .addressee-btn:hover    { border-color: #3b82f6; background: #1e3a5f; }
+    .addressee-btn.selected { border-color: #3b82f6; background: #1e3a5f; }
+
+    /* ── Generate button ── */
+    .generate-btn { margin: 14px 20px; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: 'Aptos', Calibri, sans-serif; width: calc(100% - 40px); }
+    .generate-btn:hover:not(:disabled) { background: #1d4ed8; }
+    .generate-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
+    /* ── Preview pane ── */
+    .preview-pane { flex: 1; overflow-y: auto; background: #e2e8f0; display: flex; flex-direction: column; }
+    .preview-toolbar { background: #fff; border-bottom: 1px solid #dde1e8; padding: 11px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .preview-title   { font-size: 13px; font-weight: 600; color: #475569; }
+    .preview-actions { display: flex; gap: 8px; }
+    .action-btn { padding: 7px 14px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; font-family: 'Aptos', Calibri, sans-serif; transition: all 0.15s; }
+    .action-btn.primary  { background: #2563eb; color: white; }
+    .action-btn.primary:hover   { background: #1d4ed8; }
+    .action-btn.secondary       { background: #f1f5f9; color: #475569; border: 1px solid #dde1e8; }
+    .action-btn.secondary:hover { background: #e2e8f0; }
+    .preview-canvas { flex: 1; padding: 32px; display: flex; justify-content: center; }
+    .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; gap: 10px; }
+    .empty-icon  { font-size: 48px; opacity: 0.3; }
+    .empty-title { font-size: 16px; font-weight: 600; color: #64748b; }
+    .empty-sub   { font-size: 13px; text-align: center; max-width: 300px; line-height: 1.6; }
+
+/* ============================================================
+       SECTION B: LETTER / PAPER STYLES
+    ============================================================ */
+    .letter-paper {
+      background: white; width: 100%; max-width: 740px; min-height: 900px;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.12); border-radius: 3px;
+      font-family: 'Aptos', Calibri, sans-serif;
+      font-size: 13.5px; line-height: 1.75; color: #1a1a1a; overflow: hidden;
+    }
+    .letter-header  { padding: 28px 40px 16px; border-bottom: 2px solid #0f172a; }
+    .letterhead     { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+    .company-logo   { display: flex; align-items: center; gap: 12px; }
+    .logo-mark      { font-size: 30px; color: #0f172a; }
+    .co-main        { display: block; font-family: 'Aptos', Calibri, sans-serif; font-size: 20px; font-weight: 600; color: #0f172a; letter-spacing: 2px; }
+    .co-sub         { display: block; font-family: 'Aptos', Calibri, sans-serif; font-size: 9px; letter-spacing: 3px; color: #64748b; text-transform: uppercase; }
+    .office-info    { text-align: right; font-family: 'Aptos', Calibri, sans-serif; }
+    .office-name    { font-size: 11px; font-weight: 700; color: #0f172a; }
+    .office-detail  { font-size: 10px; color: #64748b; line-height: 1.5; }
+    .letter-meta    { display: flex; justify-content: space-between; font-family: 'Aptos', Calibri, sans-serif; font-size: 11px; color: #475569; }
+    .meta-label     { font-weight: 600; color: #0f172a; }
+    .letter-body    { padding: 24px 40px 32px; }
+    .salutation     { margin-bottom: 14px; }
+    .subject-line   { margin-bottom: 14px; color: #0f172a; font-weight: bold; }
+    .letter-body p  { margin-bottom: 12px; }
+    .salary-table   { width: 100%; border-collapse: collapse; margin: 14px 0; font-family: 'Aptos', Calibri, sans-serif; font-size: 12px; }
+    .salary-table td { padding: 7px 12px; border: 1px solid #e2e8f0; }
+    .salary-table td:first-child { color: #475569; background: #f8fafc; width: 55%; }
+    .salary-table td:last-child  { color: #0f172a; text-align: right; font-weight: bold; }
+    .salary-table .total-row td  { background: #0f172a !important; color: white !important; font-weight: bold; }
+    .address-block  { background: #f8fafc; border-left: 3px solid #0f172a; padding: 10px 14px; margin: 12px 0; font-family: 'Aptos', Calibri, sans-serif; }
+    /* Addressee block — sits between the letterhead and the letter body */
+    .addressee-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #cbd5e1; font-family: 'Aptos', Calibri, sans-serif; }
+    .addressee-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+    .addressee-name  { font-size: 13px; font-weight: 600; color: #0f172a; }
+    .letter-footer  { margin-top: 28px; }
+    .letter-footer > p { margin-bottom: 36px; }
+    .signature-block { border-top: 1px solid #334155; padding-top: 8px; }
+    .signature-block div { font-family: 'Aptos', Calibri, sans-serif; font-size: 11px; line-height: 1.7; }
+    .footer-note    { margin-top: 32px; font-family: 'Aptos', Calibri, sans-serif; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; font-style: italic; }
+    /* Confidential banner — appears at the top of every letter */
+    .confidential-banner {
+      background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+      padding: 5px 40px; text-align: right;
+      font-family: 'Aptos', Calibri, sans-serif;
+      font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; color: #64748b;
+    }
+
+    @media print {
+      .sidebar, .preview-toolbar { display: none !important; }
+
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══════════════════════════════════════ LEFT SIDEBAR ═══════════════════════════════════════ -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">HR Letter Generator</div>
+      <div class="sidebar-name" style="font-family:'Arial Black',Arial,sans-serif;font-size:22px;font-weight:900;color:#f8fafc;letter-spacing:-0.5px;">
+        Deloitte<span style="color:#86BC25;">.</span>
+      </div>
+      <div class="sidebar-sub" id="stats-sub">Loading…</div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat"><div class="stat-num" id="stat-offices">–</div><div class="stat-label">Offices</div></div>
+      <div class="stat"><div class="stat-num" id="stat-types">–</div><div class="stat-label">Templates</div></div>
+      <div class="stat"><div class="stat-num" id="stat-employees">–</div><div class="stat-label">Requests</div></div>
+    </div>
+
+    <!-- Data Sources -->
+    <div class="form-section">
+      <label class="form-label">📂 Data Sources</label>
+
+      <!-- HRIS status — read-only, managed by admin via shared folder -->
+      <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span class="source-badge hris">HRIS</span>
+          <span style="font-size:11px;font-weight:600;color:#cbd5e1;">Employee Master Data</span>
+        </div>
+        <!-- SharePoint URL config (shown collapsed after first save) -->
+        <div id="sp-config-row" style="margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+            <span style="font-size:10px;color:#64748b;font-weight:600;">SharePoint URL</span>
+            <button onclick="toggleSpConfig()" style="background:none;border:none;color:#475569;font-size:10px;cursor:pointer;text-decoration:underline;padding:0;">change</button>
+          </div>
+          <div id="sp-config-panel" style="display:none;margin-bottom:8px;">
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="sp-url-input" type="url" placeholder="https://yourcompany.sharepoint.com/…"
+                style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#f1f5f9;font-size:10px;font-family:'Aptos', Calibri, sans-serif;outline:none;"/>
+              <button onclick="saveSpUrl()"
+                style="padding:6px 12px;background:#2563eb;color:white;border:none;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">Save</button>
+            </div>
+            <div style="font-size:9px;color:#475569;margin-top:4px;line-height:1.4;">
+              Folder URL where admin uploads <code style="color:#60a5fa;">hris_data.json</code>
+            </div>
+          </div>
+          <div id="sp-url-status" style="font-size:10px;color:#f59e0b;">⚠ Not configured</div>
+        </div>
+        <!-- HRIS load status -->
+        <div id="hris-preload-status" style="display:flex;align-items:center;gap:8px;font-size:10px;border-radius:6px;padding:6px 10px;background:#052e16;border:1px solid #166534;color:#86efac;">
+          <span>✅</span>
+          <span><strong id="hris-emp-count">0</strong> employees loaded</span>
+        </div>
+        <div id="hris-preload-detail" style="font-size:10px;color:#475569;margin-top:5px;line-height:1.4;"></div>
+
+        <!-- Fallback upload zone — revealed only when URL fetch fails -->
+        <div id="hris-fallback-upload" style="display:none;margin-top:10px;">
+          <div style="font-size:10px;color:#fca5a5;margin-bottom:6px;line-height:1.5;">
+            Unable to load from URL. Upload the HRIS file directly as a fallback:
+          </div>
+          <div class="upload-zone-sm" id="hris-fallback-zone"
+               ondragover="handleDragOverSource(event,'hris')"
+               ondragleave="handleDragLeaveSource(event,'hris')"
+               ondrop="handleDropSource(event,'hris')">
+            <input type="file" id="hris-upload" accept=".xlsx,.xls"
+                   onchange="handleFileUploadSource(event,'hris')"/>
+            <div class="upload-text"><strong>Click</strong> or drag &amp; drop HRIS .xlsx</div>
+          </div>
+          <div class="source-status" id="hris-status"></div>
+          <div class="mapping-panel" id="hris-mapping-panel">
+            <div class="mapping-title">⚙️ Map HRIS Columns</div>
+            <div id="hris-mapping-rows"></div>
+            <button class="apply-mapping-btn" onclick="applySourceMapping('hris')">Apply &amp; Load HRIS</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ServiceNow — daily upload by user -->
+      <div class="upload-source-block" id="upload-sources">
+        <div class="upload-source-header">
+          <span class="source-badge snow">ServiceNow</span>
+          <span class="source-title">Today's Letter Requests</span>
+        </div>
+        <div class="source-desc">Upload today's ServiceNow report. Only these employees will appear in the list below.</div>
+        <div class="upload-zone-sm" id="snow-zone"
+             ondragover="handleDragOverSource(event,'snow')"
+             ondragleave="handleDragLeaveSource(event,'snow')"
+             ondrop="handleDropSource(event,'snow')">
+          <input type="file" id="snow-upload" accept=".xlsx,.xls" onchange="handleFileUploadSource(event,'snow')"/>
+          <div class="upload-text"><strong>Click</strong> or drag &amp; drop ServiceNow .xlsx</div>
+        </div>
+        <div class="source-status" id="snow-status"></div>
+        <div class="mapping-panel" id="snow-mapping-panel">
+          <div class="mapping-title">⚙️ Map ServiceNow Columns</div>
+          <div id="snow-mapping-rows"></div>
+          <button class="apply-mapping-btn" onclick="applySourceMapping('snow')">Apply &amp; Load ServiceNow</button>
+        </div>
+      </div>
+
+      <!-- Collapsed summary shown after ServiceNow is loaded -->
+      <div class="upload-summary" id="upload-summary" onclick="expandUploads()" title="Click to re-upload ServiceNow file" style="margin-top:10px;">
+        <div class="upload-summary-row">
+          <div class="upload-summary-dot snow"></div>
+          <span class="upload-summary-label">ServiceNow</span>
+          <span class="upload-summary-value" id="summary-snow">—</span>
+          <span class="upload-summary-change">change</span>
+        </div>
+      </div>
+
+      <div class="merge-banner" id="merge-banner"></div>
+    </div>
+
+    <!-- Today's Requests list -->
+    <div class="form-section">
+      <label class="form-label">
+        📋 Today's Requests
+        <span id="requests-count" style="font-weight:400;text-transform:none;color:#475569;letter-spacing:0;margin-left:4px;"></span>
+      </label>
+      <div style="font-size:10px;color:#475569;margin-bottom:8px;line-height:1.5;" id="requests-hint">
+        Upload today's ServiceNow report above to see letter requests.
+      </div>
+      <input class="search-box" id="emp-search" type="text" placeholder="Search by name or request number…" oninput="filterEmployees()" style="display:none;"/>
+      <div class="emp-list" id="emp-list"></div>
+    </div>
+
+    <!-- Letter Type -->
+    <div class="form-section">
+      <label class="form-label">Letter Type</label>
+      <div class="letter-grid" id="letter-grid"></div>
+    </div>
+
+    <!-- Purpose -->
+    <div class="form-section">
+      <label class="form-label">Purpose <span style="font-weight:400;text-transform:none;color:#475569">(optional)</span></label>
+      <textarea class="purpose-box" id="purpose-input" rows="2" placeholder="e.g. visa application, bank account opening…"></textarea>
+    </div>
+
+    <!-- Letter Date -->
+    <div class="form-section">
+      <label class="form-label">📅 Letter Date</label>
+      <input class="search-box" type="date" id="letter-date"/>
+      <div style="font-size:10px;color:#475569;margin-top:6px;">Leave as today or pick a different date.</div>
+    </div>
+
+    <!-- Addressed To -->
+    <div class="form-section">
+      <label class="form-label">📬 Addressed To</label>
+      <div class="letter-grid" style="margin-bottom:8px;" id="addressee-grid"></div>
+      <input class="search-box" type="text" id="addressee-custom" placeholder="Or type a custom recipient…" oninput="clearAddresseeSelection()"/>
+      <div style="font-size:10px;color:#475569;margin-top:6px;">Shown as "To Whom It May Concern" if left blank.</div>
+    </div>
+
+    <!-- Recipient Country -->
+    <div class="form-section">
+      <label class="form-label">🌐 Recipient Country</label>
+      <input class="search-box" type="text" id="country-input" placeholder="e.g. UAE, Germany, India…"/>
+      <div style="font-size:10px;color:#475569;margin-top:6px;">Appended to the addressee line, e.g. "The Branch Manager, UAE".</div>
+    </div>
+
+    <!-- Authorised Signatory -->
+    <div class="form-section">
+      <label class="form-label">✍️ Authorised Signatory</label>
+      <select class="search-box" id="signatory-select" style="cursor:pointer;">
+        <option value="">— Select signatory —</option>
+      </select>
+      <div style="font-size:10px;color:#475569;margin-top:6px;">Name and designation printed at the bottom of the letter.</div>
+    </div>
+
+    <button class="generate-btn" id="generate-btn" onclick="generateLetter()" disabled>
+      Select employee &amp; letter type
+    </button>
+
+    <div style="margin: 0 20px 16px; display:flex; gap:8px;">
+      <button onclick="downloadLog()"
+        style="flex:1;padding:8px 0;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        onmouseover="this.style.borderColor='#3b82f6';this.style.color='#60a5fa'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8'">
+        📥 Download Log
+      </button>
+      <button onclick="emailLog()"
+        style="flex:1;padding:8px 0;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        onmouseover="this.style.borderColor='#3b82f6';this.style.color='#60a5fa'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8'">
+        📧 Email Log
+      </button>
+      <button onclick="clearLog()"
+        style="padding:8px 10px;background:#1e293b;color:#64748b;border:1px solid #334155;border-radius:8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'Aptos',Calibri,sans-serif;transition:all .15s;"
+        title="Clear all log entries"
+        onmouseover="this.style.borderColor='#ef4444';this.style.color='#f87171'"
+        onmouseout="this.style.borderColor='#334155';this.style.color='#64748b'">
+        🗑
+      </button>
+    </div>
+    <div id="log-status" style="margin:-8px 20px 14px;font-size:10px;color:#475569;text-align:center;"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ PREVIEW PANE ═══════════════════════════════════════ -->
+  <div class="preview-pane">
+    <div class="preview-toolbar">
+      <div class="preview-title" id="preview-title">Letter Preview</div>
+      <div class="preview-actions" id="preview-actions" style="display:none">
+        <button class="action-btn secondary" onclick="resetLetter()">← New Letter</button>
+        <button class="action-btn secondary" onclick="editLetter()">✏️ Edit &amp; Download Word</button>
+        <button class="action-btn primary" onclick="printLetter()">Print / Save PDF</button>
+      </div>
+    </div>
+    <div class="preview-canvas" id="preview-canvas">
+      <div class="empty-state">
+        <div class="empty-icon">📄</div>
+        <div class="empty-title">No letter generated yet</div>
+        <div class="empty-sub">Upload both files, select a request from the list, then click Generate.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 1: OFFICE LOCATIONS & LETTERHEADS
+// To add/update offices: edit this list.
+// "id" must match the Location Code column in your Excel file.
+// ════════════════════════════════════════════════════════════════════════
+
+const LOCATIONS = [
+  { id:"DXB", name:"Dubai – Head Office", address:"Level 12, Dubai World Trade Centre, Sheikh Zayed Road, Dubai, UAE", phone:"+971 4 123 4567", email:"hr.dubai@company.com" },
+  { id:"AUH", name:"Abu Dhabi",           address:"Floor 8, ADNEC Centre, Khaleej Al Arabi, Abu Dhabi, UAE",          phone:"+971 2 234 5678", email:"hr.abudhabi@company.com" },
+  { id:"SHJ", name:"Sharjah",             address:"Office 501, Al Qasimia Tower, Al Arouba Street, Sharjah, UAE",     phone:"+971 6 345 6789", email:"hr.sharjah@company.com" },
+  { id:"AJM", name:"Ajman",               address:"Suite 302, Ajman Free Zone, Ajman, UAE",                           phone:"+971 6 456 7890", email:"hr.ajman@company.com" },
+  { id:"RAK", name:"Ras Al Khaimah",      address:"Block B, RAK Economic Zone, Ras Al Khaimah, UAE",                  phone:"+971 7 567 8901", email:"hr.rak@company.com" },
+  { id:"UAQ", name:"Umm Al Quwain",       address:"Office 201, UAQ Free Trade Zone, Umm Al Quwain, UAE",              phone:"+971 6 567 8910", email:"hr.uaq@company.com" },
+  { id:"FUJ", name:"Fujairah",            address:"Unit 305, Fujairah Creative City, Fujairah, UAE",                  phone:"+971 9 678 9012", email:"hr.fujairah@company.com" },
+];
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 2: LETTER TYPES
+// ════════════════════════════════════════════════════════════════════════
+
+const LETTER_TYPES = [
+  { id:"salary_cert",     name:"Salary Certificate",                    description:"Monthly salary breakdown" },
+  { id:"salary_transfer", name:"Salary Transfer Letter",                description:"Bank salary transfer" },
+  { id:"employment_cert", name:"Employment Certificate",                description:"Confirms employment status" },
+  { id:"noc",             name:"No Objection Certificate",              description:"NOC for various purposes" },
+  { id:"noc_tourist",     name:"NOC — Tourist Visa",                    description:"NOC for tourist/visit visa" },
+  { id:"noc_business",    name:"NOC — Business Visa",                   description:"NOC for business travel" },
+  { id:"experience",      name:"Experience Letter",                     description:"Confirms work experience" },
+  { id:"visa_support",    name:"Visa Support Letter",                   description:"For visa applications" },
+  { id:"bank_account",    name:"Bank Account Opening",                  description:"For opening a bank account" },
+  { id:"address_proof",   name:"Address Proof Letter",                  description:"Confirms home address" },
+  { id:"reference",       name:"Reference Letter",                      description:"Professional reference" },
+];
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 3: BUILT-IN SAMPLE EMPLOYEE DATA
+// This is the fallback data used when no Excel file has been uploaded.
+// Once an Excel file is uploaded, this is replaced by the Excel data.
+// ════════════════════════════════════════════════════════════════════════
+
+const SAMPLE_EMPLOYEES = [
+  // Salary components (basic, housing, transport) must add up to the total salary.
+  // passportNo → employee's passport number, used across all letter types.
+  { id:"EMP001", name:"Mohammed Al Rashidi", designation:"Senior Financial Analyst",  department:"Finance",               location:"DXB", joinDate:"15 March 2019",     salary:"AED 18,500", basic:"AED 12,025", housing:"AED 4,625", transport:"AED 1,850", bank:"Emirates NBD",        iban:"AE07 0331 2345 6789 0123 456", nationality:"Emirati",  passportNo:"A12345678", address:"Villa 12, Al Barsha 2, Dubai, UAE" },
+  { id:"EMP002", name:"Priya Sharma",         designation:"HR Business Partner",       department:"Human Resources",       location:"AUH", joinDate:"01 July 2021",      salary:"AED 14,200", basic:"AED 9,230",  housing:"AED 3,550", transport:"AED 1,420", bank:"First Abu Dhabi Bank", iban:"AE28 0200 0001 2345 6789 012", nationality:"Indian",   passportNo:"P98765432", address:"Apt 504, Al Reef Tower, Abu Dhabi, UAE" },
+  { id:"EMP003", name:"James Okonkwo",        designation:"IT Infrastructure Manager", department:"Information Technology",location:"SHJ", joinDate:"10 January 2018",  salary:"AED 22,000", basic:"AED 14,300", housing:"AED 5,500", transport:"AED 2,200", bank:"Mashreq Bank",         iban:"AE97 0330 0000 0202 0681 671", nationality:"Nigerian", passportNo:"NG4456789", address:"Floor 3, Al Majaz Residence, Sharjah, UAE" },
+  { id:"EMP004", name:"Fatima Al Zaabi",      designation:"Operations Coordinator",    department:"Operations",            location:"AJM", joinDate:"22 September 2022", salary:"AED 9,800",  basic:"AED 6,370",  housing:"AED 2,450", transport:"AED 980",   bank:"ADCB",                 iban:"AE07 0030 0000 0608 0050 767", nationality:"Emirati",  passportNo:"A87654321", address:"Building 7, Al Jurf, Ajman, UAE" },
+  { id:"EMP005", name:"Carlos Mendoza",       designation:"Project Manager",           department:"Engineering",           location:"RAK", joinDate:"05 April 2020",     salary:"AED 16,700", basic:"AED 10,855", housing:"AED 4,175", transport:"AED 1,670", bank:"RAK Bank",             iban:"AE46 0400 0000 0123 4567 890", nationality:"Spanish",  passportNo:"ES1234567", address:"Unit 201, Mina Al Arab, Ras Al Khaimah, UAE" },
+];
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 4: EXCEL COLUMN MAPPING
+// ────────────────────────────────────────────────────────────────────────
+// This tells the app which Excel column name maps to which field.
+// The app uses these EXPECTED_COLUMNS to try to auto-detect your columns.
+//
+// KEY (left side)   = internal field name used in letter templates
+// VALUE (right side) = the exact column header you use in your Excel file
+//
+// If your Excel uses different column names (e.g. "Emp ID" instead of
+// "Employee ID"), the app will show a mapping panel for you to match them.
+// You can also just change the right-hand values below to match your Excel.
+// ════════════════════════════════════════════════════════════════════════
+
+const EXPECTED_COLUMNS = {
+  id:          "Employee ID",     // Unique employee code e.g. EMP001
+  name:        "Name",            // Full name
+  email:       "Email",           // Work email — JOIN KEY used to match ServiceNow rows
+  designation: "Designation",     // Job title
+  department:  "Department",      // Department name
+  location:    "Location Code",   // Must match a LOCATIONS id (e.g. DXB, AUH)
+  joinDate:    "Join Date",       // Date of joining
+  nationality: "Nationality",     // Nationality
+  passportNo:  "Passport Number", // Passport number — shown on all letter types
+  basic:       "Basic Salary",    // Basic salary component e.g. AED 12,025
+  housing:     "Housing Allowance",     // Housing allowance e.g. AED 4,625
+  transport:   "Transport Allowance",   // Transport allowance e.g. AED 1,850
+  salary:      "Total Salary",    // Total monthly salary e.g. AED 18,500
+  bank:        "Bank",            // Bank name
+  iban:        "IBAN",            // IBAN number
+  address:     "Address",         // Residential address
+};
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 5: LETTER TEMPLATES
+// ════════════════════════════════════════════════════════════════════════
+
+const TEMPLATES = {
+
+  // ── Helper used by all templates ──────────────────────────────────────
+  // Builds the standard employee info block shown at the top of every letter.
+  // Includes: name, nationality, passport, designation, department, join date.
+  // Called as: empBlock(emp) inside each template below.
+
+  // ── TEMPLATE 1: Salary Certificate ───────────────────────────────────
+  // Shows full salary breakdown: basic, housing, transport, total.
+  // If basic/housing/transport are stored in the Excel, they are used directly.
+  // If not provided, they are auto-calculated (65% / 25% / 10% of total).
+  salary_cert: (emp, loc, purpose) => {
+    const total    = parseFloat((emp.salary   || "0").toString().replace("AED","").replace(/,/g,"").trim()) || 0;
+    const basicAmt = emp.basic     || "AED " + Math.round(total * 0.65).toLocaleString();
+    const housAmt  = emp.housing   || "AED " + Math.round(total * 0.25).toLocaleString();
+    const tranAmt  = emp.transport || "AED " + Math.round(total * 0.10).toLocaleString();
+    return `
+      <p class="salutation">To Whom It May Concern,</p>
+      <p class="subject-line">SUBJECT: SALARY CERTIFICATE</p>
+      <p>This is to certify that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+      holding Passport No. <strong>${emp.passportNo || "–"}</strong>, currently employed as
+      <strong>${emp.designation}</strong> in our <strong>${emp.department}</strong> department,
+      has been with Nexus Group since <strong>${emp.joinDate}</strong>.</p>
+      <p>The employee's current monthly salary package is as follows:</p>
+      <table class="salary-table">
+        <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+        <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+        <tr><td>Basic Salary</td><td>${basicAmt}</td></tr>
+        <tr><td>Housing Allowance</td><td>${housAmt}</td></tr>
+        <tr><td>Transportation Allowance</td><td>${tranAmt}</td></tr>
+        <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+      </table>
+      <p>This certificate is issued upon the employee's request for <strong>${purpose || "official purposes"}</strong>
+      and should not be construed as a guarantee of continued employment.</p>`;
+  },
+
+  // ── TEMPLATE 2: Salary Transfer Letter ───────────────────────────────
+  salary_transfer: (emp, loc, purpose) => {
+    const total    = parseFloat((emp.salary   || "0").toString().replace("AED","").replace(/,/g,"").trim()) || 0;
+    const basicAmt = emp.basic     || "AED " + Math.round(total * 0.65).toLocaleString();
+    const housAmt  = emp.housing   || "AED " + Math.round(total * 0.25).toLocaleString();
+    const tranAmt  = emp.transport || "AED " + Math.round(total * 0.10).toLocaleString();
+    return `
+    <p class="salutation">To: The Branch Manager,<br/>${emp.bank}</p>
+    <p class="subject-line">SUBJECT: SALARY TRANSFER AUTHORIZATION – ${(emp.name||"").toUpperCase()}</p>
+    <p>We hereby request you to credit the monthly salary of our employee <strong>${emp.name}</strong>
+    (${emp.designation}, ${emp.department}) to the following account with effect from this month:</p>
+    <table class="salary-table">
+      <tr><td>Account Holder Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>IBAN Number</td><td>${emp.iban}</td></tr>
+      <tr><td>Bank Name</td><td>${emp.bank}</td></tr>
+      <tr><td>Basic Salary</td><td>${basicAmt}</td></tr>
+      <tr><td>Housing Allowance</td><td>${housAmt}</td></tr>
+      <tr><td>Transportation Allowance</td><td>${tranAmt}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+    </table>
+    <p>Salary will be transferred on or before the last working day of each month. Please confirm
+    the setup in writing to our HR department at ${loc.email}.</p>`;
+  },
+
+  // ── TEMPLATE 3: Employment Certificate ───────────────────────────────
+  employment_cert: (emp, loc, purpose) => {
+    const total    = parseFloat((emp.salary   || "0").toString().replace("AED","").replace(/,/g,"").trim()) || 0;
+    const basicAmt = emp.basic     || "AED " + Math.round(total * 0.65).toLocaleString();
+    const housAmt  = emp.housing   || "AED " + Math.round(total * 0.25).toLocaleString();
+    const tranAmt  = emp.transport || "AED " + Math.round(total * 0.10).toLocaleString();
+    return `
+    <p class="salutation">To Whom It May Concern,</p>
+    <p class="subject-line">SUBJECT: EMPLOYMENT CERTIFICATE</p>
+    <p>This is to certify that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, is currently employed with
+    Nexus Group — ${loc.name} as <strong>${emp.designation}</strong> in the <strong>${emp.department}</strong> department.</p>
+    <p>Details of employment are as follows:</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Department</td><td>${emp.department}</td></tr>
+      <tr><td>Date of Joining</td><td>${emp.joinDate}</td></tr>
+      <tr><td>Employment Status</td><td>Full-Time, Permanent</td></tr>
+      <tr><td>Basic Salary</td><td>${basicAmt}</td></tr>
+      <tr><td>Housing Allowance</td><td>${housAmt}</td></tr>
+      <tr><td>Transportation Allowance</td><td>${tranAmt}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+    </table>
+    <p>This certificate is issued upon the employee's request for ${purpose || "official purposes"}.</p>`;
+  },
+
+  // ── TEMPLATE 4: No Objection Certificate ─────────────────────────────
+  noc: (emp, loc, purpose) => `
+    <p class="salutation">To Whom It May Concern,</p>
+    <p class="subject-line">SUBJECT: NO OBJECTION CERTIFICATE</p>
+    <p>This is to certify that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, employed as <strong>${emp.designation}</strong>
+    in our ${emp.department} department since ${emp.joinDate}, has applied for a No Objection Certificate
+    for <strong>${purpose || "personal purposes"}</strong>.</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Department</td><td>${emp.department}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+    </table>
+    <p>Nexus Group — ${loc.name} has <strong>no objection</strong> to the above-mentioned employee
+    proceeding with the stated purpose. The employee is in good standing with the company, with no
+    disciplinary actions on record.</p>
+    <p>This certificate is issued purely at the employee's request and should not be interpreted as
+    any form of guarantee or liability on the part of Nexus Group.</p>`,
+
+  // ── TEMPLATE 5: NOC — Tourist Visa ───────────────────────────────────
+  noc_tourist: (emp, loc, purpose, addressee) => {
+    const travelFrom = emp._snReq?.snTravelFrom || "–";
+    const travelTo   = emp._snReq?.snTravelTo   || "–";
+    const country    = emp._snReq?.snCountry    || purpose || "the destination country";
+    const workLocation = loc.name.includes("–") ? loc.name.split("–")[1].trim() : loc.name;
+    return `
+    <p class="salutation">To Whom It May Concern,</p>
+    <p class="subject-line">SUBJECT: NO OBJECTION CERTIFICATE – TOURIST VISA – ${(emp.name||"").toUpperCase()}</p>
+    <p>This is to certify that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, is currently employed as
+    <strong>${emp.designation}</strong> in our <strong>${emp.department}</strong> department
+    since <strong>${emp.joinDate}</strong>.</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Department</td><td>${emp.department}</td></tr>
+      <tr><td>Travel Destination</td><td>${country}</td></tr>
+      <tr><td>Travel Date From</td><td>${travelFrom}</td></tr>
+      <tr><td>Travel Date To</td><td>${travelTo}</td></tr>
+    </table>
+    <p>We hereby confirm that we have no objection to the Employee applying for a tourist or visit visa
+    to travel to <strong>${country}</strong> for tourism purposes from <strong>${travelFrom}</strong> to
+    <strong>${travelTo}</strong>. The Employee will resume duties with the Firm upon return to
+    <strong>${workLocation}</strong>.</p>
+    <p>The Employee is in good standing with the Firm and has no disciplinary actions on record.
+    We request the concerned authorities to grant the necessary visa accordingly.</p>`;
+  },
+
+  // ── TEMPLATE 6: NOC — Business Visa ──────────────────────────────────
+  noc_business: (emp, loc, purpose, addressee) => {
+    const travelFrom = emp._snReq?.snTravelFrom || "–";
+    const travelTo   = emp._snReq?.snTravelTo   || "–";
+    const country    = emp._snReq?.snCountry    || purpose || "the destination country";
+    return `
+    <p class="salutation">To Whom It May Concern,</p>
+    <p class="subject-line">SUBJECT: NO OBJECTION CERTIFICATE – BUSINESS VISA – ${(emp.name||"").toUpperCase()}</p>
+    <p>This is to certify that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, is currently employed as
+    <strong>${emp.designation}</strong> in our <strong>${emp.department}</strong> department
+    since <strong>${emp.joinDate}</strong>.</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Department</td><td>${emp.department}</td></tr>
+      <tr><td>Travel Destination</td><td>${country}</td></tr>
+      <tr><td>Travel Date From</td><td>${travelFrom}</td></tr>
+      <tr><td>Travel Date To</td><td>${travelTo}</td></tr>
+    </table>
+    <p>We hereby confirm that we have no objection to the Employee travelling to
+    <strong>${country}</strong> from <strong>${travelFrom}</strong> until <strong>${travelTo}</strong>
+    for business-related purposes, and all expenses related to the business travel are covered by the Firm.</p>
+    <p>We request the concerned authorities to grant the necessary business visa to facilitate
+    this travel. For further verification, please contact us at ${loc.email}.</p>`;
+  },
+
+  // ── TEMPLATE 7: Experience Letter ────────────────────────────────────
+  experience: (emp, loc, purpose) => {
+    const first = (emp.name || "").split(" ")[0];
+    return `
+      <p class="salutation">To Whom It May Concern,</p>
+      <p class="subject-line">SUBJECT: EXPERIENCE LETTER</p>
+      <p>This is to confirm that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+      holding Passport No. <strong>${emp.passportNo || "–"}</strong>, has served as
+      <strong>${emp.designation}</strong> at Nexus Group — ${loc.name} from <strong>${emp.joinDate}</strong>
+      to the present date.</p>
+      <table class="salary-table">
+        <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+        <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+        <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+        <tr><td>Designation</td><td>${emp.designation}</td></tr>
+        <tr><td>Department</td><td>${emp.department}</td></tr>
+        <tr><td>Date of Joining</td><td>${emp.joinDate}</td></tr>
+        <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+      </table>
+      <p>During this tenure, ${first} has demonstrated consistent professionalism and has made meaningful
+      contributions to the ${emp.department} department.</p>
+      <p>We wish ${first} continued success in all future endeavors.</p>`;
+  },
+
+  // ── TEMPLATE 6: Visa Support Letter ──────────────────────────────────
+  visa_support: (emp, loc, purpose) => {
+    const total    = parseFloat((emp.salary   || "0").toString().replace("AED","").replace(/,/g,"").trim()) || 0;
+    const basicAmt = emp.basic     || "AED " + Math.round(total * 0.65).toLocaleString();
+    const housAmt  = emp.housing   || "AED " + Math.round(total * 0.25).toLocaleString();
+    const tranAmt  = emp.transport || "AED " + Math.round(total * 0.10).toLocaleString();
+    return `
+    <p class="salutation">To: The Concerned Embassy / Consulate</p>
+    <p class="subject-line">SUBJECT: VISA SUPPORT LETTER FOR ${(emp.name||"").toUpperCase()}</p>
+    <p>We, Nexus Group — ${loc.name}, hereby confirm that <strong>${emp.name}</strong>, a national of
+    <strong>${emp.nationality}</strong> holding Passport No. <strong>${emp.passportNo || "–"}</strong>,
+    is a permanent employee holding the position of <strong>${emp.designation}</strong> in our
+    ${emp.department} department since ${emp.joinDate}.</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Basic Salary</td><td>${basicAmt}</td></tr>
+      <tr><td>Housing Allowance</td><td>${housAmt}</td></tr>
+      <tr><td>Transportation Allowance</td><td>${tranAmt}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+    </table>
+    <p>The employee is currently on authorized leave for the purpose of
+    <strong>${purpose || "official travel"}</strong>. All expenses related to this travel
+    will be borne by the employee.</p>
+    <p>We request the concerned authorities to grant the necessary visa and assure that the employee
+    will return to the UAE upon completion of the visit. Kindly contact us at ${loc.email} for verification.</p>`;
+  },
+
+  // ── TEMPLATE 7: Bank Account Opening Letter ───────────────────────────
+  bank_account: (emp, loc, purpose) => {
+    const total    = parseFloat((emp.salary   || "0").toString().replace("AED","").replace(/,/g,"").trim()) || 0;
+    const basicAmt = emp.basic     || "AED " + Math.round(total * 0.65).toLocaleString();
+    const housAmt  = emp.housing   || "AED " + Math.round(total * 0.25).toLocaleString();
+    const tranAmt  = emp.transport || "AED " + Math.round(total * 0.10).toLocaleString();
+    return `
+    <p class="salutation">To: The Branch Manager,<br/>${emp.bank}</p>
+    <p class="subject-line">SUBJECT: REQUEST FOR BANK ACCOUNT OPENING – ${(emp.name||"").toUpperCase()}</p>
+    <p>We are pleased to introduce <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, currently employed with Nexus Group as
+    <strong>${emp.designation}</strong> in our ${emp.department} department since ${emp.joinDate}.</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr><td>Basic Salary</td><td>${basicAmt}</td></tr>
+      <tr><td>Housing Allowance</td><td>${housAmt}</td></tr>
+      <tr><td>Transportation Allowance</td><td>${tranAmt}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+      <tr><td>Account Type</td><td>Salary Account</td></tr>
+    </table>
+    <p>The salary for this employee will be credited to this account on a monthly basis. Please extend
+    your best banking services to our employee.</p>`;
+  },
+
+  // ── TEMPLATE 8: Address Proof Letter ─────────────────────────────────
+  address_proof: (emp, loc, purpose) => `
+    <p class="salutation">To Whom It May Concern,</p>
+    <p class="subject-line">SUBJECT: ADDRESS PROOF LETTER</p>
+    <p>This is to confirm that <strong>${emp.name}</strong>, a national of <strong>${emp.nationality}</strong>
+    holding Passport No. <strong>${emp.passportNo || "–"}</strong>, our employee holding the position of
+    <strong>${emp.designation}</strong> in the ${emp.department} department, is currently residing
+    at the following address:</p>
+    <table class="salary-table">
+      <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+      <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+      <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+      <tr><td>Designation</td><td>${emp.designation}</td></tr>
+      <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+    </table>
+    <div class="address-block"><strong>${emp.address}</strong></div>
+    <p>This address has been registered in our official HR records. This letter is issued upon the
+    employee's request for ${purpose || "address verification purposes"}.</p>`,
+
+  // ── TEMPLATE 9: Reference Letter ─────────────────────────────────────
+  reference: (emp, loc, purpose) => {
+    const first = (emp.name || "").split(" ")[0];
+    return `
+      <p class="salutation">To Whom It May Concern,</p>
+      <p class="subject-line">SUBJECT: PROFESSIONAL REFERENCE LETTER FOR ${(emp.name||"").toUpperCase()}</p>
+      <p>It is with great pleasure that I write this reference for <strong>${emp.name}</strong>,
+      a national of <strong>${emp.nationality}</strong> holding Passport No.
+      <strong>${emp.passportNo || "–"}</strong>, who has served as <strong>${emp.designation}</strong>
+      at Nexus Group — ${loc.name} since ${emp.joinDate}.</p>
+      <table class="salary-table">
+        <tr><td>Employee Name</td><td>${emp.name}</td></tr>
+        <tr><td>Nationality</td><td>${emp.nationality}</td></tr>
+        <tr><td>Passport Number</td><td>${emp.passportNo || "–"}</td></tr>
+        <tr><td>Designation</td><td>${emp.designation}</td></tr>
+        <tr><td>Department</td><td>${emp.department}</td></tr>
+        <tr><td>Date of Joining</td><td>${emp.joinDate}</td></tr>
+        <tr class="total-row"><td><strong>Total Monthly Salary</strong></td><td>${emp.salary}</td></tr>
+      </table>
+      <p>${first} has consistently demonstrated professionalism, technical competency, and collaborative
+      spirit. I recommend <strong>${emp.name}</strong> without reservation for any opportunity they may pursue.</p>
+      <p>For further information, please contact us at ${loc.email}.</p>`;
+  },
+};
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 6: ADDRESSEE PRESETS
+// ────────────────────────────────────────────────────────────────────────
+// These appear as quick-pick buttons in the sidebar under "Addressed To".
+// HR can click one to select it, or type a fully custom recipient below.
+//
+// TO ADD A NEW PRESET: Add an entry with a "label" (button text) and
+// "value" (what appears on the letter). Keep labels short.
+// ════════════════════════════════════════════════════════════════════════
+
+const ADDRESSEE_PRESETS = [
+  { label: "Bank",           value: "The Branch Manager" },
+  { label: "Embassy",        value: "The Consulate General / Embassy" },
+  { label: "Rental Agency",  value: "The Property Manager / Rental Agency" },
+  { label: "Whom It May Concern", value: "To Whom It May Concern" },
+  { label: "Immigration",    value: "The Immigration Authority" },
+  { label: "School / University", value: "The Admissions Office" },
+  // ↑ Add more presets here. Example:
+  // { label: "Hospital", value: "The Medical Records Department" },
+];
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 6b: AUTHORISED SIGNATORIES
+// ────────────────────────────────────────────────────────────────────────
+// These appear in the "Authorised Signatory" dropdown in the sidebar.
+// The selected signatory's name and designation print at the bottom of
+// every letter. The office name and location are NOT printed beneath them.
+//
+// TO ADD A NEW SIGNATORY: copy any existing line and update the name
+// and designation fields.
+// TO REMOVE A SIGNATORY: delete their line from the list.
+// ════════════════════════════════════════════════════════════════════════
+
+const SIGNATORIES = [
+  { name: "Sarah Al Mansoori",  designation: "HR Director" },
+  { name: "Khalid Al Hashimi",  designation: "Senior HR Manager" },
+  { name: "Divya Nair",         designation: "HR Manager" },
+  { name: "Ahmed Al Farsi",     designation: "HR Business Partner" },
+  // ↑ Add more signatories here. Example:
+  // { name: "Jane Smith", designation: "Head of People Operations" },
+];
+
+// ════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 6c: LETTER LOG CONFIGURATION
+// ════════════════════════════════════════════════════════════════════════
+const LOG_EMAIL_RECIPIENT = "hr.letterlog@company.com";
+const LOG_STORAGE_KEY     = "hrLetterGeneratorLog";
+
+// STATE
+// ════════════════════════════════════════════════════════════════════════
+
+let EMPLOYEES      = [...SAMPLE_EMPLOYEES]; // Active merged employee list shown in cards
+let selectedEmp    = null;
+let selectedLetter = null;
+let currentHTML    = null;
+
+// ── Dual-source state ─────────────────────────────────────────────────
+// hrisData   → parsed rows from the HRIS Excel (master employee records)
+// snowData   → parsed rows from the ServiceNow Excel (today's letter requests)
+// Both are keyed by email address for the merge join.
+let hrisData       = null;  // Array of employee objects from HRIS
+let snowData       = null;  // Array of request objects from ServiceNow
+
+// Raw rows kept for re-processing after manual column mapping
+let rawRows        = { hris: [], snow: [] };
+let excelHdrs      = { hris: [], snow: [] };
+
+// ════════════════════════════════════════════════════════════════════════
+// EXPECTED COLUMNS — ServiceNow file
+// ────────────────────────────────────────────────────────────────────────
+// These are the field names the app expects to find in the ServiceNow report.
+// KEY   = internal field name used internally
+// VALUE = exact column header in the ServiceNow Excel export
+//
+// The ServiceNow report must have at least an email address column so the app
+// can join it to the HRIS data.  All other columns are optional extras that
+// override or supplement the HRIS values on the final letter.
+// ════════════════════════════════════════════════════════════════════════
+
+const SN_EXPECTED_COLUMNS = {
+  snEmail:       "Email",                // JOIN KEY — must match HRIS email
+  snRequestNo:   "Request Number",       // ServiceNow ticket / RITM number
+  snLetterType:  "Letter Type",          // Requested letter type (e.g. "Salary Certificate")
+  snAddressee:   "Addressed To",         // Who the letter should go to
+  snCountry:     "Country",             // Country of the recipient entity (appended to addressee line)
+  snPurpose:     "Purpose",              // Purpose / reason stated in the ticket
+  snTravelFrom:  "Travel Date From",     // Travel start date (for visa/NOC letters)
+  snTravelTo:    "Travel Date To",       // Travel end date
+  snPassport:    "Passport Number",      // Passport (overrides HRIS value if present)
+  snNationality: "Nationality",          // Nationality (overrides HRIS if present)
+  snNotes:       "Additional Notes",     // Any free-text notes from the requestor
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// SHAREPOINT INTEGRATION
+// ────────────────────────────────────────────────────────────────────────
+// The user enters the SharePoint folder URL once. The app remembers it
+// in localStorage and fetches hris_data.json from that URL on every open.
+// hris_data.json is published there by the admin via hr_admin.html.
+// ════════════════════════════════════════════════════════════════════════
+
+const SP_URL_KEY      = "hrUser_spFolderUrl";
+const HRIS_JSON_FILE  = "hris_data.json";
+
+// ── Initialise on page load ───────────────────────────────────────────
+window.onload = async function () {
+  renderLetterButtons();
+  renderAddresseeButtons();
+  renderSignatoryDropdown();
+  updateStats();
+
+  // Default date to today
+  const today = new Date();
+  document.getElementById("letter-date").value =
+    `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
+  // Restore saved SharePoint URL and show config panel
+  const savedUrl = localStorage.getItem(SP_URL_KEY) || "";
+  document.getElementById("sp-url-input").value = savedUrl;
+  updateSpConfigDisplay(savedUrl);
+
+  // Attempt to load HRIS from SharePoint
+  await loadHrisFromSharePoint(savedUrl);
+
+  updateStats();
+  renderEmployeeList(EMPLOYEES);
+  updateLogStatus();
+};
+
+function updateSpConfigDisplay(url) {
+  const statusEl = document.getElementById("sp-url-status");
+  if (url) {
+    statusEl.textContent = "✅ " + url;
+    statusEl.style.color = "#22c55e";
+  } else {
+    statusEl.textContent = "⚠ Not configured — using built-in sample data.";
+    statusEl.style.color = "#f59e0b";
+  }
+}
+
+function toggleSpConfig() {
+  const panel = document.getElementById("sp-config-panel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+function saveSpUrl() {
+  const url = document.getElementById("sp-url-input").value.trim();
+  if (!url) { alert("Please enter your SharePoint folder URL."); return; }
+  localStorage.setItem(SP_URL_KEY, url);
+  updateSpConfigDisplay(url);
+  // Reload HRIS from the new URL immediately
+  loadHrisFromSharePoint(url).then(() => {
+    updateStats();
+    renderEmployeeList(EMPLOYEES);
+  });
+}
+
+// ── Fetch hris_data.json from SharePoint ──────────────────────────────
+async function loadHrisFromSharePoint(folderUrl) {
+  const statusEl   = document.getElementById("hris-preload-status");
+  const countEl    = document.getElementById("hris-emp-count");
+  const detailEl   = document.getElementById("hris-preload-detail");
+  const fallbackEl = document.getElementById("hris-fallback-upload");
+
+  if (!folderUrl) {
+    // No URL configured — fall back to built-in sample employees
+    hrisData = SAMPLE_EMPLOYEES.map(e => ({...e, email:(e.email||"").toLowerCase().trim()}));
+    statusEl.style.background = "#1c1004";
+    statusEl.style.border     = "1px solid #92400e";
+    statusEl.style.color      = "#fcd34d";
+    statusEl.querySelector("span:first-child").textContent = "⚠️";
+    countEl.textContent = hrisData.length;
+    detailEl.textContent = "Using built-in sample data — configure a URL above, or upload the HRIS file directly below.";
+    fallbackEl.style.display = "block";
+    return;
+  }
+
+  // Build the fetch URL — ensure folder URL ends with /
+  const base     = folderUrl.endsWith("/") ? folderUrl : folderUrl + "/";
+  const fetchUrl = base + HRIS_JSON_FILE;
+
+  // Show loading state
+  statusEl.style.background = "#1e293b";
+  statusEl.style.border     = "1px solid #334155";
+  statusEl.style.color      = "#94a3b8";
+  statusEl.querySelector("span:first-child").textContent = "⏳";
+  countEl.textContent  = "…";
+  detailEl.textContent = "Fetching from URL…";
+  fallbackEl.style.display = "none";
+
+  try {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(fetchUrl, { cache: "no-store", signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (!data.employees || !Array.isArray(data.employees)) throw new Error("Invalid data format");
+
+    hrisData = data.employees.map(e => ({...e, email:(e.email||"").toLowerCase().trim()}));
+
+    // Success — hide fallback upload
+    statusEl.style.background = "#052e16";
+    statusEl.style.border     = "1px solid #166534";
+    statusEl.style.color      = "#86efac";
+    statusEl.querySelector("span:first-child").textContent = "✅";
+    countEl.textContent = hrisData.length;
+    const pub = data.publishedAt
+      ? new Date(data.publishedAt).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})
+      : "unknown";
+    detailEl.textContent     = `Published ${pub} · ${data.sourceFile || ""}`;
+    fallbackEl.style.display = "none";
+
+  } catch (err) {
+    console.warn("HRIS fetch failed:", err);
+    // Fall back to built-in sample data and reveal the manual upload zone
+    hrisData = SAMPLE_EMPLOYEES.map(e => ({...e, email:(e.email||"").toLowerCase().trim()}));
+    statusEl.style.background = "#2d0a0a";
+    statusEl.style.border     = "1px solid #991b1b";
+    statusEl.style.color      = "#fca5a5";
+    statusEl.querySelector("span:first-child").textContent = "❌";
+    countEl.textContent      = hrisData.length + " (sample)";
+    detailEl.textContent     = `Could not reach ${fetchUrl} — upload the HRIS file directly below as a fallback.`;
+    fallbackEl.style.display = "block";
+  }
+}
+
+function updateStats() {
+  document.getElementById("stat-offices").textContent   = LOCATIONS.length;
+  document.getElementById("stat-types").textContent     = LETTER_TYPES.length;
+  document.getElementById("stat-employees").textContent = snowData ? EMPLOYEES.length : (hrisData ? hrisData.length : SAMPLE_EMPLOYEES.length);
+  document.getElementById("stats-sub").textContent      = `${LOCATIONS.length} Offices · ${LETTER_TYPES.length} Templates`;
+}
+
+function showSourceStatus(source, type, message) {
+  const el = document.getElementById(`${source}-status`);
+  el.className = `source-status ${type}`;
+  const icon = type === "success" ? "✅" : type === "error" ? "❌" : "⚠️";
+  el.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  el.style.display = "flex";
+}
+
+function showMergeBanner(type, message) {
+  const el = document.getElementById("merge-banner");
+  el.className = `merge-banner ${type}`;
+  el.innerHTML = message;
+  el.style.display = "flex";
+}
+
+// ── Collapse ServiceNow upload into compact summary after file loads ──
+function collapseUploads() {
+  document.getElementById("upload-sources").style.display  = "none";
+  document.getElementById("merge-banner").style.display    = "none";
+  document.getElementById("upload-summary").style.display  = "block";
+  document.getElementById("emp-search").style.display      = "block";
+  document.getElementById("emp-list").classList.add("expanded");
+  document.getElementById("requests-hint").style.display   = "none";
+}
+
+// ── Expand back to ServiceNow upload zone when user clicks "change" ───
+function expandUploads() {
+  document.getElementById("upload-sources").style.display  = "";
+  document.getElementById("upload-summary").style.display  = "none";
+  const banner = document.getElementById("merge-banner");
+  if (banner.innerHTML) banner.style.display = "flex";
+  document.getElementById("emp-list").classList.remove("expanded");
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 7: DUAL-SOURCE EXCEL UPLOAD & PARSING
+// ════════════════════════════════════════════════════════════════════════
+
+// ── Drag-and-drop handlers (source-aware) ────────────────────────────
+function handleDragOverSource(e, source) {
+  e.preventDefault();
+  document.getElementById(`${source}-zone`).classList.add("drag-over");
+}
+function handleDragLeaveSource(e, source) {
+  document.getElementById(`${source}-zone`).classList.remove("drag-over");
+}
+function handleDropSource(e, source) {
+  e.preventDefault();
+  document.getElementById(`${source}-zone`).classList.remove("drag-over");
+  const file = e.dataTransfer.files[0];
+  if (file) processSourceFile(file, source);
+}
+function handleFileUploadSource(e, source) {
+  const file = e.target.files[0];
+  if (file) processSourceFile(file, source);
+}
+
+// ── Core per-source Excel parser ──────────────────────────────────────
+function processSourceFile(file, source) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showSourceStatus(source, "error", "Please upload a .xlsx or .xls file.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const workbook = XLSX.read(ev.target.result, { type: "binary", cellDates: true });
+      const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+      const rows     = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      if (rows.length === 0) {
+        showSourceStatus(source, "error", "File appears empty.");
+        return;
+      }
+
+      rawRows[source]  = rows;
+      excelHdrs[source] = Object.keys(rows[0]);
+
+      const expectedCols = source === "hris" ? EXPECTED_COLUMNS : SN_EXPECTED_COLUMNS;
+      const mapping = autoDetectMappingFor(excelHdrs[source], expectedCols);
+      const unmapped = Object.keys(expectedCols).filter(k => !mapping[k]);
+
+      if (unmapped.length === 0) {
+        loadSourceData(rows, mapping, file.name, source);
+      } else {
+        // Non-critical fields may be missing from ServiceNow — only block if
+        // the join key (email for SN, name for HRIS) is missing.
+        const criticalMissing = source === "hris"
+          ? !mapping.name
+          : !mapping.snEmail;
+
+        if (!criticalMissing && unmapped.length <= 5) {
+          // Proceed with partial mapping — missing optional fields are just skipped
+          loadSourceData(rows, mapping, file.name, source);
+        } else {
+          showSourceStatus(source, "warning", `${unmapped.length} column(s) need mapping.`);
+          showSourceMappingPanel(source, excelHdrs[source], mapping, expectedCols);
+        }
+      }
+    } catch (err) {
+      showSourceStatus(source, "error", "Could not read file. Ensure it is a valid .xlsx.");
+      console.error(err);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ── Auto-detect mapping for a given column set ───────────────────────
+function autoDetectMappingFor(headers, expectedCols) {
+  const mapping = {};
+  const normalize = s => s.toLowerCase().replace(/[\s_\-\.]/g, "");
+  Object.entries(expectedCols).forEach(([fieldKey, expectedName]) => {
+    const expected = normalize(expectedName);
+    const match = headers.find(h => normalize(h) === expected)
+               || headers.find(h => normalize(h).includes(expected) || expected.includes(normalize(h)));
+    if (match) mapping[fieldKey] = match;
+  });
+  return mapping;
+}
+
+// ── Show manual mapping panel for a specific source ───────────────────
+function showSourceMappingPanel(source, headers, detectedMapping, expectedCols) {
+  const panel = document.getElementById(`${source}-mapping-panel`);
+  const rows  = document.getElementById(`${source}-mapping-rows`);
+  rows.innerHTML = Object.entries(expectedCols).map(([fieldKey, label]) => {
+    const detected = detectedMapping[fieldKey] || "";
+    const opts = ["-- skip --", ...headers].map(h =>
+      `<option value="${h}" ${h === detected ? "selected" : ""}>${h}</option>`
+    ).join("");
+    return `<div class="mapping-row">
+      <div class="mapping-label">${label}</div>
+      <select class="mapping-select" id="${source}_map_${fieldKey}">${opts}</select>
+    </div>`;
+  }).join("");
+  panel.style.display = "block";
+}
+
+// ── Apply manual mapping for a specific source ────────────────────────
+function applySourceMapping(source) {
+  const expectedCols = source === "hris" ? EXPECTED_COLUMNS : SN_EXPECTED_COLUMNS;
+  const mapping = {};
+  Object.keys(expectedCols).forEach(fieldKey => {
+    const val = document.getElementById(`${source}_map_${fieldKey}`)?.value;
+    if (val && val !== "-- skip --") mapping[fieldKey] = val;
+  });
+
+  const criticalMissing = source === "hris" ? !mapping.name : !mapping.snEmail;
+  if (criticalMissing) {
+    showSourceStatus(source, "error",
+      source === "hris" ? "Name column must be mapped." : "Email column must be mapped for joining.");
+    return;
+  }
+
+  const filename = document.getElementById(`${source}-upload`).files[0]?.name || "uploaded file";
+  document.getElementById(`${source}-mapping-panel`).style.display = "none";
+  loadSourceData(rawRows[source], mapping, filename, source);
+}
+
+// ── Load and store data for one source, then try to merge ─────────────
+function loadSourceData(rows, mapping, filename, source) {
+  if (source === "hris") {
+    hrisData = parseHrisRows(rows, mapping);
+
+    // Update the HRIS status indicator to reflect the manually uploaded file
+    const statusEl  = document.getElementById("hris-preload-status");
+    const countEl   = document.getElementById("hris-emp-count");
+    const detailEl  = document.getElementById("hris-preload-detail");
+    statusEl.style.background = "#052e16";
+    statusEl.style.border     = "1px solid #166534";
+    statusEl.style.color      = "#86efac";
+    statusEl.querySelector("span:first-child").textContent = "✅";
+    countEl.textContent  = hrisData.length;
+    detailEl.textContent = `Loaded from file: ${filename}`;
+
+    // Hide the fallback upload zone now that we have data
+    document.getElementById("hris-fallback-upload").style.display = "none";
+
+    // If ServiceNow data was already uploaded, re-run the merge with the new HRIS data
+    if (snowData) {
+      tryMergeAndRender();
+    } else {
+      updateStats();
+      renderEmployeeList(EMPLOYEES);
+    }
+
+  } else {
+    snowData = parseSnowRows(rows, mapping);
+    showSourceStatus("snow", "success", `${snowData.length} requests loaded from ${filename}`);
+    document.getElementById("summary-snow").textContent = `${filename}  (${snowData.length} requests)`;
+    tryMergeAndRender();
+  }
+}
+
+// ── Parse HRIS rows into employee objects ─────────────────────────────
+function parseHrisRows(rows, mapping) {
+  return rows.map((row, index) => {
+    const emp = {};
+    Object.entries(mapping).forEach(([fieldKey, excelCol]) => {
+      let val = row[excelCol];
+      if (val instanceof Date) {
+        val = val.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+      } else {
+        val = (val !== undefined && val !== null) ? String(val).trim() : "";
+      }
+      if (["salary","basic","housing","transport"].includes(fieldKey) && val && !val.toString().startsWith("AED")) {
+        const num = parseFloat(val.toString().replace(/,/g, ""));
+        val = isNaN(num) ? val : "AED " + num.toLocaleString();
+      }
+      emp[fieldKey] = val;
+    });
+    if (!emp.id) emp.id = `ROW${index + 1}`;
+    // Normalise email for reliable joining
+    if (emp.email) emp.email = emp.email.toLowerCase().trim();
+    return emp;
+  }).filter(emp => emp.name);
+}
+
+// ── Parse ServiceNow rows into request objects ────────────────────────
+function parseSnowRows(rows, mapping) {
+  return rows.map((row, index) => {
+    const req = {};
+    Object.entries(mapping).forEach(([fieldKey, excelCol]) => {
+      let val = row[excelCol];
+      if (val instanceof Date) {
+        val = val.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+      } else {
+        val = (val !== undefined && val !== null) ? String(val).trim() : "";
+      }
+      req[fieldKey] = val;
+    });
+    // Normalise join key
+    if (req.snEmail) req.snEmail = req.snEmail.toLowerCase().trim();
+    if (!req._rowIndex) req._rowIndex = index;
+    return req;
+  }).filter(req => req.snEmail); // Must have email to be joinable
+}
+
+// ── Merge HRIS + ServiceNow and refresh the employee list ─────────────
+// HRIS is always pre-loaded on page load (managed by admin).
+// The merge runs the moment the user uploads the ServiceNow file.
+function tryMergeAndRender() {
+  // No ServiceNow yet — show idle state
+  if (!snowData) {
+    EMPLOYEES = [];
+    updateStats();
+    renderEmployeeList(EMPLOYEES);
+    return;
+  }
+
+  // ServiceNow loaded — join against pre-loaded HRIS
+  const hrisMap = {};
+  hrisData.forEach(emp => {
+    if (emp.email) hrisMap[emp.email.toLowerCase()] = emp;
+  });
+
+  let matchedCount   = 0;
+  let unmatchedCount = 0;
+
+  const merged = snowData.map((req, idx) => {
+    const hrisEmp = hrisMap[req.snEmail] || null;
+
+    if (hrisEmp) {
+      matchedCount++;
+      return {
+        ...hrisEmp,
+        passportNo:  (req.snPassport    && req.snPassport.trim())    ? req.snPassport    : hrisEmp.passportNo,
+        nationality: (req.snNationality && req.snNationality.trim()) ? req.snNationality : hrisEmp.nationality,
+        _snReq:       req,
+        _hrisMatched: true,
+        id: `SN_${idx}_${hrisEmp.id}`,
+      };
+    } else {
+      unmatchedCount++;
+      return {
+        id:          `SN_${idx}_UNMATCHED`,
+        name:        req.snEmail,
+        designation: "No HRIS match",
+        department:  "–",
+        location:    "",
+        _snReq:       req,
+        _hrisMatched: false,
+      };
+    }
+  });
+
+  EMPLOYEES      = merged;
+  selectedEmp    = null;
+  selectedLetter = null;
+  currentHTML    = null;
+
+  updateStats();
+  renderEmployeeList(EMPLOYEES);
+  renderLetterButtons();
+  resetPreview();
+  collapseUploads();
+
+  if (unmatchedCount === 0) {
+    showMergeBanner("ready",
+      `✅ ${matchedCount} requests loaded · All matched to HRIS records`);
+  } else {
+    showMergeBanner("partial",
+      `⚠️ ${matchedCount} matched · ${unmatchedCount} request(s) have no HRIS record (shown in red)`);
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 8: UI RENDERING
+// ════════════════════════════════════════════════════════════════════════
+
+function renderEmployeeList(list) {
+  const container = document.getElementById("emp-list");
+
+  // Update the count label next to the section heading
+  const countEl = document.getElementById("requests-count");
+  if (countEl) {
+    countEl.textContent = snowData
+      ? `— ${list.length} of ${EMPLOYEES.length} shown`
+      : list.length > 0 ? `(${list.length})` : "";
+  }
+
+  if (list.length === 0) {
+    container.innerHTML = `<div style="color:#64748b;font-size:12px;padding:8px 0">No matching requests found.</div>`;
+    return;
+  }
+
+  const isSnMode = snowData !== null; // True when SN data is active — use richer cards
+
+  container.innerHTML = list.map(emp => {
+    const loc      = LOCATIONS.find(l => l.id === emp.location);
+    const locLabel = loc ? loc.name : (emp.location || "No location");
+    const locColor = loc ? "" : "color:#f87171";
+    const isSelected = selectedEmp?.id === emp.id;
+
+    if (isSnMode && emp._snReq) {
+      // ── ServiceNow request card ──────────────────────────────────────
+      const req         = emp._snReq;
+      const matchedTag  = emp._hrisMatched
+        ? `<span class="sn-tag matched">✓ HRIS matched</span>`
+        : `<span class="sn-tag unmatched">⚠ No HRIS match</span>`;
+      const letterTag   = req.snLetterType
+        ? `<span class="sn-tag letter-type">${req.snLetterType}</span>`
+        : "";
+      const reqNo       = req.snRequestNo ? `<span style="font-size:9px;color:#64748b;">${req.snRequestNo}</span>` : "";
+      return `<div class="sn-card ${isSelected ? 'selected' : ''}" onclick="selectEmployee('${emp.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div class="sn-card-name">${emp._hrisMatched ? emp.name : req.snEmail}</div>
+          ${reqNo}
+        </div>
+        <div class="sn-card-sub">${emp.designation || "–"} · ${emp.department || "–"}</div>
+        <div class="sn-card-meta">
+          ${matchedTag}
+          ${letterTag}
+          <span class="sn-tag" style="background:#1e293b;color:#64748b;border:1px solid #334155;${locColor}">${locLabel}</span>
+        </div>
+      </div>`;
+    } else {
+      // ── Standard HRIS-only employee card ────────────────────────────
+      return `<div class="emp-card ${isSelected ? 'selected' : ''}" onclick="selectEmployee('${emp.id}')">
+        <div class="emp-card-name">${emp.name}</div>
+        <div class="emp-card-sub">${emp.designation || "–"} · ${emp.department || "–"}</div>
+        <span class="emp-badge" style="${locColor}">${locLabel}</span>
+      </div>`;
+    }
+  }).join("");
+}
+
+function filterEmployees() {
+  const q = document.getElementById("emp-search").value.toLowerCase();
+  const filtered = EMPLOYEES.filter(e =>
+    (e.name||"").toLowerCase().includes(q) ||
+    (e.id||"").toLowerCase().includes(q) ||
+    (e.department||"").toLowerCase().includes(q)
+  );
+  renderEmployeeList(filtered);
+}
+
+function selectEmployee(empId) {
+  selectedEmp = EMPLOYEES.find(e => e.id === empId);
+  currentHTML = null;
+  filterEmployees();
+  updateGenerateButton();
+  resetPreview();
+
+  // ── Auto-fill from ServiceNow request data ────────────────────────
+  // When a request card is selected, pre-populate the form fields that
+  // ServiceNow already told us: letter type, addressee, purpose.
+  // HR can still override any of these before generating.
+  if (selectedEmp?._snReq) {
+    const req = selectedEmp._snReq;
+
+    // Auto-select letter type if SN provided one and it matches a known type
+    if (req.snLetterType) {
+      const normalise = s => s.toLowerCase().replace(/[\s_\-]/g, "");
+      const match = LETTER_TYPES.find(lt =>
+        normalise(lt.name).includes(normalise(req.snLetterType)) ||
+        normalise(req.snLetterType).includes(normalise(lt.name))
+      );
+      if (match) {
+        selectedLetter = match;
+        renderLetterButtons();
+      }
+    }
+
+    // Auto-fill purpose from SN
+    if (req.snPurpose) {
+      document.getElementById("purpose-input").value = req.snPurpose;
+    }
+
+    // Auto-fill addressee from SN (clear preset buttons and set custom field)
+    if (req.snAddressee) {
+      document.querySelectorAll(".addressee-btn").forEach(b => b.classList.remove("selected"));
+      document.getElementById("addressee-custom").value = req.snAddressee;
+    }
+
+    // Auto-fill recipient country from SN
+    if (req.snCountry) {
+      document.getElementById("country-input").value = req.snCountry;
+    }
+
+    updateGenerateButton();
+  }
+}
+
+function renderLetterButtons() {
+  document.getElementById("letter-grid").innerHTML = LETTER_TYPES.map(lt =>
+    `<button class="letter-btn ${selectedLetter?.id === lt.id ? 'selected' : ''}" onclick="selectLetter('${lt.id}')">
+      <div class="letter-btn-name">${lt.name}</div>
+      <div class="letter-btn-desc">${lt.description}</div>
+    </button>`
+  ).join("");
+}
+
+// ── Render addressee quick-pick buttons ───────────────────────────────
+function renderAddresseeButtons() {
+  document.getElementById("addressee-grid").innerHTML = ADDRESSEE_PRESETS.map((a, i) =>
+    `<button class="addressee-btn" data-value="${a.value}" onclick="selectAddressee(${i})">
+      ${a.label}
+    </button>`
+  ).join("");
+}
+
+// ── Populate the signatory dropdown ───────────────────────────────────
+function renderSignatoryDropdown() {
+  const sel = document.getElementById("signatory-select");
+  sel.innerHTML = `<option value="">— Select signatory —</option>` +
+    SIGNATORIES.map((s, i) =>
+      `<option value="${i}">${s.name} — ${s.designation}</option>`
+    ).join("");
+}
+
+// ── Handle addressee button selection ─────────────────────────────────
+function selectAddressee(index) {
+  document.querySelectorAll(".addressee-btn").forEach((b, i) => {
+    b.classList.toggle("selected", i === index);
+  });
+  // Clear the custom text box when a preset is selected
+  document.getElementById("addressee-custom").value = "";
+}
+
+// ── Clear button highlights when HR types a custom addressee ──────────
+function clearAddresseeSelection() {
+  document.querySelectorAll(".addressee-btn").forEach(b => b.classList.remove("selected"));
+}
+
+function selectLetter(letterId) {
+  selectedLetter = LETTER_TYPES.find(l => l.id === letterId);
+  currentHTML    = null;
+  renderLetterButtons();
+  updateGenerateButton();
+  resetPreview();
+}
+
+function updateGenerateButton() {
+  const btn = document.getElementById("generate-btn");
+  const ready = selectedEmp && selectedLetter;
+  btn.disabled    = !ready;
+  btn.textContent = ready ? "Generate Letter →" : "Select employee & letter type";
+}
+
+function resetPreview() {
+  document.getElementById("preview-canvas").innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">📄</div>
+      <div class="empty-title">No letter generated yet</div>
+      <div class="empty-sub">Select an employee and a letter type, then click Generate.</div>
+    </div>`;
+  document.getElementById("preview-title").textContent = "Letter Preview";
+  document.getElementById("preview-actions").style.display = "none";
+}
+
+function resetLetter() {
+  selectedLetter = null;
+  currentHTML    = null;
+  document.getElementById("country-input").value    = "";
+  document.getElementById("signatory-select").value = "";
+  renderLetterButtons();
+  updateGenerateButton();
+  resetPreview();
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 9: LETTER GENERATION
+// ════════════════════════════════════════════════════════════════════════
+
+function generateLetter() {
+  if (!selectedEmp || !selectedLetter) return;
+
+  const loc = LOCATIONS.find(l => l.id === selectedEmp.location);
+  if (!loc) {
+    document.getElementById("preview-canvas").innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">Location Not Found</div>
+        <div class="empty-sub">The employee's location code "<strong>${selectedEmp.location}</strong>" doesn't match any office in the LOCATIONS list. Please check your Excel data or add the location in the HTML file.</div>
+      </div>`;
+    return;
+  }
+
+  const purpose = document.getElementById("purpose-input").value.trim();
+
+  // ── Letter Date ──
+  // Reads from the date picker. Falls back to today if empty.
+  const rawDate    = document.getElementById("letter-date").value;
+  const dateObj    = rawDate ? new Date(rawDate + "T00:00:00") : new Date();
+  const letterDate = dateObj.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+
+  // ── Addressee ──
+  // Uses the selected quick-pick button value, or the custom text box, or a generic fallback.
+  // Country is appended if provided, e.g. "The Branch Manager, UAE"
+  const selectedAddrBtn  = document.querySelector(".addressee-btn.selected");
+  const customAddrText   = document.getElementById("addressee-custom").value.trim();
+  const countryText      = document.getElementById("country-input").value.trim();
+  const addresseeBase    = selectedAddrBtn
+    ? selectedAddrBtn.dataset.value
+    : (customAddrText || "To Whom It May Concern");
+  const addressee        = countryText ? `${addresseeBase}, ${countryText}` : addresseeBase;
+
+  // ── Reference Number ──
+  // Uses the ServiceNow Request Number if available, otherwise generates a fallback ref.
+  const snReqNo = selectedEmp?._snReq?.snRequestNo || "";
+  const refNo   = snReqNo || `${loc.id}/HR/${selectedLetter.id.slice(0,3).toUpperCase()}/${Date.now().toString().slice(-5)}`;
+
+  // ── LETTERHEAD ──
+  // TO CHANGE COMPANY NAME: edit "Deloitte" and the subtitle below.
+  // TO CHANGE LOGO COLOUR: change the color value in .deloitte-logo style.
+  const header = `
+    <div class="confidential-banner">🔒 Private &amp; Confidential</div>
+    <div class="letter-header">
+      <div class="letterhead">
+        <div class="company-logo">
+          <!-- Deloitte logo — sourced from Wikimedia Commons, 320×61px -->
+          <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Logo_of_Deloitte.svg/330px-Logo_of_Deloitte.svg.png"
+               alt="Deloitte"
+               width="192" height="37"
+               style="display:block;" />
+        </div>
+        <div class="office-info">
+          <div class="office-name">${loc.name}</div>
+          <div class="office-detail">${loc.address}</div>
+          <div class="office-detail">${loc.phone} · ${loc.email}</div>
+        </div>
+      </div>
+      <div class="letter-meta">
+        <div><span class="meta-label">Request Number:</span> ${refNo}</div>
+        <div><span class="meta-label">Date:</span> ${letterDate}</div>
+      </div>
+      <!-- Addressee block — shown between the header and the letter body -->
+      <div class="addressee-block">
+        <div class="addressee-label">To:</div>
+        <div class="addressee-name">${addressee}</div>
+      </div>
+    </div>`;
+
+  const bodyFn = TEMPLATES[selectedLetter.id];
+  const body   = bodyFn ? bodyFn(selectedEmp, loc, purpose, addressee) : "<p>Template not found.</p>";
+
+  // ── Signatory ──
+  // Reads from the dropdown. Falls back to a generic label if none selected.
+  const sigIdx   = document.getElementById("signatory-select").value;
+  const sigObj   = sigIdx !== "" ? SIGNATORIES[parseInt(sigIdx)] : null;
+  const sigName  = sigObj ? sigObj.name        : "Authorised Signatory";
+  const sigTitle = sigObj ? sigObj.designation : "Human Resources Department";
+
+  const footer = `
+    <div class="letter-footer">
+      <p>Yours sincerely,</p>
+      <div class="signature-block">
+        <div><strong>${sigName}</strong></div>
+        <div>${sigTitle}</div>
+      </div>
+      <div class="footer-note">
+        This document is electronically generated and e-signed following authorization by the signatory.
+        For further inquiries or verifications, please contact the firm's verifications team at
+        <strong>empservices@test.com</strong>
+      </div>
+    </div>`;
+
+  // Closing statement appended as the final paragraph of the letter body —
+  // plain body text, no special styling, consistent across all letter types.
+  const closingStatement = `<p>This certification is issued upon the Employee's request, without any liability on the part of the Firm. The Firm confirms that the information provided in this certificate is accurate as of the date of issuance and may be subject to amendment in the future.</p>`;
+
+  currentHTML = header + `<div class="letter-body">${body}${closingStatement}${footer}</div>`;
+
+  document.getElementById("preview-canvas").innerHTML = `<div class="letter-paper">${currentHTML}</div>`;
+  appendToLog({
+    timestamp:   new Date().toISOString(),
+    ritm:        selectedEmp?._snReq?.snRequestNo  || "—",
+    empName:     selectedEmp?.name                 || "—",
+    empId:       selectedEmp?.id                   || "—",
+    designation: selectedEmp?.designation          || "—",
+    department:  selectedEmp?.department           || "—",
+    office:      loc?.name                         || "—",
+    letterType:  selectedLetter?.name              || "—",
+    addressee:   addressee                         || "—",
+    purpose:     purpose                           || "—",
+    signatory:   sigName                           || "—",
+    letterDate:  letterDate                        || "—",
+  });
+  document.getElementById("preview-title").textContent = `${selectedLetter.name} · ${selectedEmp.name}`;
+  document.getElementById("preview-actions").style.display = "flex";
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 10: PRINT / SAVE AS PDF
+// ════════════════════════════════════════════════════════════════════════
+
+function printLetter() {
+  if (!currentHTML) return;
+  const ritmNo     = selectedEmp?._snReq?.snRequestNo || "";
+  const empName    = selectedEmp?.name    || "Employee";
+  const letterName = selectedLetter?.name || "Letter";
+  const filePrefix = [ritmNo, empName, letterName]
+    .filter(Boolean).map(s => s.replace(/[^a-z0-9]/gi, "_")).join("_");
+  const win = window.open("", "_blank");
+  win.document.write(`<!DOCTYPE html><html><head>
+    <title>${filePrefix}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Aptos:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+    <style>
+      body { margin: 40px; font-family: 'Aptos', Calibri, sans-serif; font-size: 14px; line-height: 1.75; color: #1a1a1a; }
+      .letter-header { padding-bottom: 16px; border-bottom: 2px solid #0f172a; margin-bottom: 20px; }
+      .letterhead { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+      .company-logo { display: flex; align-items: center; gap: 10px; }
+      .logo-mark { font-size: 28px; color: #0f172a; }
+      .co-main { display: block; font-family: 'Aptos', Calibri, sans-serif; font-size: 20px; font-weight: 600; color: #0f172a; letter-spacing: 2px; }
+      .co-sub  { display: block; font-size: 9px; letter-spacing: 3px; color: #64748b; text-transform: uppercase; }
+      .office-info { text-align: right; font-size: 10px; }
+      .office-name { font-weight: bold; color: #0f172a; font-size: 11px; }
+      .office-detail { color: #64748b; line-height: 1.5; }
+      .letter-meta { display: flex; justify-content: space-between; font-size: 11px; color: #475569; }
+      .meta-label { font-weight: 600; color: #0f172a; }
+      .letter-body { padding-top: 20px; }
+      .salutation { margin-bottom: 14px; }
+      .subject-line { font-weight: bold; margin-bottom: 14px; color: #0f172a; }
+      p { margin-bottom: 12px; }
+      .salary-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+      .salary-table td { padding: 7px 12px; border: 1px solid #e2e8f0; }
+      .salary-table td:first-child { background: #f8fafc; color: #475569; width: 55%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .salary-table td:last-child { text-align: right; font-weight: bold; }
+      .salary-table .total-row td { background: #0f172a !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .address-block { background: #f8fafc; border-left: 3px solid #0f172a; padding: 10px 14px; margin: 12px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .letter-footer { margin-top: 28px; }
+      .letter-footer > p { margin-bottom: 40px; }
+      .signature-block { border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; line-height: 1.7; }
+      .footer-note { margin-top: 30px; font-size: 9px; color: #475569; border-top: 1px solid #e2e8f0; padding-top: 10px; font-style: italic; }
+      .addressee-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #cbd5e1; }
+      .addressee-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; font-family: Arial, sans-serif; }
+      .addressee-name  { font-size: 13px; font-weight: 600; color: #0f172a; font-family: Arial, sans-serif; }
+      .confidential-banner { background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 5px 40px; text-align: right; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #64748b; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    </style>
+  </head><body>${currentHTML}</body></html>`);
+  win.document.close();
+  setTimeout(() => win.print(), 400);
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SECTION 11: EDIT & DOWNLOAD AS WORD (.docx)
+// ────────────────────────────────────────────────────────────────────────
+// Opens the letter in a new tab as an editable Word document.
+// The user can amend the content in the browser, then click
+// "Download as Word" to save a .doc file that opens in Microsoft Word.
+// ════════════════════════════════════════════════════════════════════════
+
+function editLetter() {
+  if (!currentHTML) return;
+
+  const empName    = selectedEmp?.name    || "Employee";
+  const letterName = selectedLetter?.name || "Letter";
+  const ritmNo     = selectedEmp?._snReq?.snRequestNo || "";
+  const filePrefix = [ritmNo, empName, letterName]
+    .filter(Boolean)
+    .map(s => s.replace(/[^a-z0-9]/gi, "_"))
+    .join("_");
+
+  const win = window.open("", "_blank");
+  win.document.write(`<!DOCTYPE html><html><head>
+    <title>Edit — ${ritmNo ? ritmNo + " · " : ""}${letterName} · ${empName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Aptos:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: 'Aptos', Calibri, sans-serif; background: #f0f2f5; }
+
+      /* ── Toolbar ── */
+      .toolbar { position: sticky; top: 0; z-index: 100; background: #0f172a;
+                 padding: 10px 24px; display: flex; align-items: center;
+                 justify-content: space-between; gap: 12px; }
+      .toolbar-title { font-size: 13px; font-weight: 600; color: #94a3b8; }
+      .toolbar-btns  { display: flex; gap: 8px; }
+      .tbtn { padding: 7px 16px; border-radius: 7px; font-size: 12px; font-weight: 600;
+              cursor: pointer; border: none; font-family: 'Aptos', Calibri, sans-serif; }
+      .tbtn-primary   { background: #2563eb; color: white; }
+      .tbtn-primary:hover  { background: #1d4ed8; }
+      .tbtn-secondary { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+      .tbtn-secondary:hover { background: #334155; }
+      .toolbar-note { font-size: 10px; color: #475569; flex: 1; }
+
+      /* ── Letter canvas ── */
+      .canvas { padding: 40px 24px; display: flex; justify-content: center; }
+      .letter-paper {
+        background: white; width: 100%; max-width: 740px; min-height: 900px;
+        box-shadow: 0 4px 30px rgba(0,0,0,.12); border-radius: 3px;
+        font-family: 'Aptos', Calibri, sans-serif;
+        font-size: 13.5px; line-height: 1.75; color: #1a1a1a; overflow: hidden;
+      }
+      /* Editable regions */
+      [contenteditable] { outline: none; }
+      [contenteditable]:hover { background: #f8fbff; }
+      [contenteditable]:focus { background: #eff6ff;
+        box-shadow: inset 0 0 0 2px #93c5fd; border-radius: 2px; }
+      .edit-hint { font-size: 10px; color: #93c5fd; font-style: italic;
+                   padding: 2px 8px; background: #0f172a; border-radius: 4px;
+                   display: inline-block; margin-bottom: 6px; }
+
+      /* Letter styles (mirrors preview) */
+      .letter-header { padding: 28px 40px 16px; border-bottom: 2px solid #0f172a; }
+      .letterhead { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+      .office-info { text-align: right; font-family: 'Aptos', Calibri, sans-serif; }
+      .office-name   { font-size: 11px; font-weight: 700; color: #0f172a; }
+      .office-detail { font-size: 10px; color: #64748b; line-height: 1.5; }
+      .letter-meta   { display: flex; justify-content: space-between; font-size: 11px; color: #475569; }
+      .meta-label    { font-weight: 600; color: #0f172a; }
+      .letter-body   { padding: 24px 40px 32px; }
+      .salutation    { margin-bottom: 14px; }
+      .subject-line  { margin-bottom: 14px; color: #0f172a; font-weight: bold; }
+      .letter-body p { margin-bottom: 12px; }
+      .salary-table  { width: 100%; border-collapse: collapse; margin: 14px 0;
+                       font-family: 'Aptos', Calibri, sans-serif; font-size: 12px; }
+      .salary-table td { padding: 7px 12px; border: 1px solid #e2e8f0; }
+      .salary-table td:first-child { color: #475569; background: #f8fafc; width: 55%; }
+      .salary-table td:last-child  { color: #0f172a; text-align: right; font-weight: bold; }
+      .salary-table .total-row td  { background: #0f172a !important; color: white !important; font-weight: bold; }
+      .address-block { background: #f8fafc; border-left: 3px solid #0f172a; padding: 10px 14px; margin: 12px 0; }
+      .addressee-block { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #cbd5e1; }
+      .addressee-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+      .addressee-name  { font-size: 13px; font-weight: 600; color: #0f172a; }
+      .letter-footer   { margin-top: 28px; }
+      .letter-footer > p { margin-bottom: 12px; }
+      .signature-block { border-top: 1px solid #334155; padding-top: 8px; }
+      .signature-block div { font-size: 11px; line-height: 1.7; }
+      .footer-note { margin-top: 32px; font-size: 9px; color: #94a3b8;
+                     border-top: 1px solid #e2e8f0; padding-top: 10px; font-style: italic; }
+      .confidential-banner { background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 5px 40px; text-align: right; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div class="toolbar-title">✏️ Editing — ${ritmNo ? ritmNo + " · " : ""}${letterName} · ${empName}</div>
+      <div class="toolbar-note">Click any text in the letter to edit it directly.</div>
+      <div class="toolbar-btns">
+        <button class="tbtn tbtn-secondary" onclick="window.close()">✕ Close</button>
+        <button class="tbtn tbtn-secondary" onclick="downloadWord()">⬇ Download Word (.doc)</button>
+        <button class="tbtn tbtn-primary"   onclick="downloadPdf()">⬇ Download PDF</button>
+      </div>
+    </div>
+    <div class="canvas">
+      <div class="letter-paper" id="letter-content">${currentHTML}</div>
+    </div>
+    <script>
+      // Make all paragraph and text elements editable
+      document.querySelectorAll(
+        '.letter-body p, .letter-body td, .addressee-name, .office-detail'
+      ).forEach(el => {
+        el.setAttribute('contenteditable', 'true');
+        el.setAttribute('spellcheck', 'true');
+      });
+
+      function downloadPdf() {
+        // Set document title so browser uses it as the default PDF filename
+        document.title = '${filePrefix}.pdf';
+        // Remove contenteditable attributes before printing so no edit outlines show
+        document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        const style = document.createElement('style');
+        style.textContent = \`
+          .toolbar { display: none !important; }
+          .canvas  { padding: 0 !important; }
+          .letter-paper { box-shadow: none !important; max-width: 100% !important; border-radius: 0 !important; }
+          body { background: white !important; }
+        \`;
+        document.head.appendChild(style);
+        window.print();
+        // Restore editability after print dialog closes
+        setTimeout(() => {
+          document.head.removeChild(style);
+          document.querySelectorAll(
+            '.letter-body p, .letter-body td, .addressee-name, .office-detail'
+          ).forEach(el => {
+            el.setAttribute('contenteditable', 'true');
+            el.setAttribute('spellcheck', 'true');
+          });
+        }, 1000);
+      }
+
+      function downloadWord() {
+        const content  = document.getElementById('letter-content').innerHTML;
+        const filename = '${filePrefix}.doc';
+        const blob = new Blob([
+          \`<html xmlns:o='urn:schemas-microsoft-com:office:office'
+                 xmlns:w='urn:schemas-microsoft-com:office:word'
+                 xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+              <meta charset='utf-8'/>
+              <!--[if gte mso 9]><xml><w:WordDocument>
+                <w:View>Print</w:View>
+                <w:Zoom>100</w:Zoom>
+                <w:DoNotOptimizeForBrowser/>
+              </w:WordDocument></xml><![endif]-->
+              <style>
+                body { font-family: Aptos, Calibri, sans-serif; font-size: 11pt; line-height: 1.6; margin: 2cm; }
+                table { border-collapse: collapse; width: 100%; }
+                td { padding: 6pt 10pt; border: 1pt solid #e2e8f0; font-size: 10pt; }
+                .total-row td { background: #0f172a; color: white; font-weight: bold; }
+                .footer-note { font-size: 8pt; color: #64748b; font-style: italic; border-top: 1pt solid #e2e8f0; margin-top: 24pt; padding-top: 6pt; }
+              </style>
+            </head>
+            <body>\${content}</body>
+          </html>\`
+        ], { type: 'application/msword' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+    <\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+
+</script>
+</body>
+</html>
